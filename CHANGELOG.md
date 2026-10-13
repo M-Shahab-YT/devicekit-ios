@@ -1,3 +1,7 @@
+## [0.0.34](https://github.com/mobile-next/devicekit-ios/releases/tag/0.0.34) (2026-10-13)
+* Feat: clear key in device.io.keys sends the HID keyboard clear to wipe the focused text field ([#101](https://github.com/mobile-next/devicekit-ios/pull/101))
+* Fix: bundle XCTest frameworks in the runner when Xcode 27 doesn't, and don't merge stale zips ([#100](https://github.com/mobile-next/devicekit-ios/pull/100))
+
 ## [0.0.33](https://github.com/mobile-next/devicekit-ios/releases/tag/0.0.33) (2026-10-01)
 * Feat: listen on multiple addresses, including IPv6, in DEVICEKIT_LISTEN_HOST ([#92](https://github.com/mobile-next/devicekit-ios/pull/92)), thanks to [@hillct](https://github.com/hillct)
 * Fix: report the unfolded screen size in device.info on foldables ([#91](https://github.com/mobile-next/devicekit-ios/pull/91))
