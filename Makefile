@@ -95,6 +95,7 @@ sim-zip-arm64:
 		ARCHS=arm64 \
 		$(DEPLOYMENT_TARGET_SETTING) | xcbeautify
 	@mkdir -p $(EXPORT_PATH)
+	@rm -rf "$(EXPORT_PATH)/$(SCHEME)UITests-Runner.app"
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator/$(SCHEME)UITests-Runner.app" $(EXPORT_PATH)/
 	@scripts/patch-runner.sh "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator" "$(EXPORT_PATH)"
 	@cd $(EXPORT_PATH) && rm -f $(SCHEME)-Sim-arm64.zip && zip -r $(SCHEME)-Sim-arm64.zip $(SCHEME)UITests-Runner.app
@@ -116,6 +117,7 @@ sim-zip-x86_64:
 		ARCHS=x86_64 \
 		$(DEPLOYMENT_TARGET_SETTING) | xcbeautify
 	@mkdir -p $(EXPORT_PATH)
+	@rm -rf "$(EXPORT_PATH)/$(SCHEME)UITests-Runner.app"
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator/$(SCHEME)UITests-Runner.app" $(EXPORT_PATH)/
 	@scripts/patch-runner.sh "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator" "$(EXPORT_PATH)"
 	@cd $(EXPORT_PATH) && rm -f $(SCHEME)-Sim-x86_64.zip && zip -r $(SCHEME)-Sim-x86_64.zip $(SCHEME)UITests-Runner.app
