@@ -68,7 +68,7 @@ ipa-unsigned:
 	@rm -f $(EXPORT_PATH)/$(SCHEME)-runner.ipa
 	@mkdir -p $(EXPORT_PATH)/Payload
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphoneos/$(SCHEME)UITests-Runner.app" $(EXPORT_PATH)/Payload/
-	@cd $(EXPORT_PATH) && zip -r $(SCHEME)-runner.ipa Payload
+	@cd $(EXPORT_PATH) && rm -f $(SCHEME)-runner.ipa && zip -r $(SCHEME)-runner.ipa Payload
 	@rm -rf $(EXPORT_PATH)/Payload
 	@echo "Runner IPA created at: $(EXPORT_PATH)/$(SCHEME)-runner.ipa"
 	@echo "Packaging main app IPA..."
@@ -76,7 +76,7 @@ ipa-unsigned:
 	@rm -f $(EXPORT_PATH)/$(SCHEME).ipa
 	@mkdir -p $(EXPORT_PATH)/Payload
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphoneos/$(SCHEME).app" $(EXPORT_PATH)/Payload/
-	@cd $(EXPORT_PATH) && zip -r $(SCHEME).ipa Payload
+	@cd $(EXPORT_PATH) && rm -f $(SCHEME).ipa && zip -r $(SCHEME).ipa Payload
 	@rm -rf $(EXPORT_PATH)/Payload
 	@echo "App IPA created at: $(EXPORT_PATH)/$(SCHEME).ipa"
 
@@ -97,7 +97,7 @@ sim-zip-arm64:
 	@mkdir -p $(EXPORT_PATH)
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator/$(SCHEME)UITests-Runner.app" $(EXPORT_PATH)/
 	@scripts/patch-runner.sh "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator" "$(EXPORT_PATH)"
-	@cd $(EXPORT_PATH) && zip -r $(SCHEME)-Sim-arm64.zip $(SCHEME)UITests-Runner.app
+	@cd $(EXPORT_PATH) && rm -f $(SCHEME)-Sim-arm64.zip && zip -r $(SCHEME)-Sim-arm64.zip $(SCHEME)UITests-Runner.app
 	@rm -rf "$(EXPORT_PATH)/$(SCHEME)UITests-Runner.app"
 	@echo "Simulator zip created at: $(EXPORT_PATH)/$(SCHEME)-Sim-arm64.zip"
 
@@ -118,7 +118,7 @@ sim-zip-x86_64:
 	@mkdir -p $(EXPORT_PATH)
 	@cp -r "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator/$(SCHEME)UITests-Runner.app" $(EXPORT_PATH)/
 	@scripts/patch-runner.sh "$(BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator" "$(EXPORT_PATH)"
-	@cd $(EXPORT_PATH) && zip -r $(SCHEME)-Sim-x86_64.zip $(SCHEME)UITests-Runner.app
+	@cd $(EXPORT_PATH) && rm -f $(SCHEME)-Sim-x86_64.zip && zip -r $(SCHEME)-Sim-x86_64.zip $(SCHEME)UITests-Runner.app
 	@rm -rf "$(EXPORT_PATH)/$(SCHEME)UITests-Runner.app"
 	@echo "Simulator zip created at: $(EXPORT_PATH)/$(SCHEME)-Sim-x86_64.zip"
 
