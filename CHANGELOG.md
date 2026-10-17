@@ -1,3 +1,8 @@
+## [0.0.35](https://github.com/mobile-next/devicekit-ios/releases/tag/0.0.35) (2026-10-17)
+* Fix: report keyboard focus from the snapshot's hasKeyboardFocus, so the Email field reports focus too ([#104](https://github.com/mobile-next/devicekit-ios/pull/104))
+* Refactor: update naming conventions ([#103](https://github.com/mobile-next/devicekit-ios/pull/103))
+* Docs: read the tunnel address on newer Xcode too ([#99](https://github.com/mobile-next/devicekit-ios/pull/99)), thanks to [@scelza](https://github.com/scelza)
+
 ## [0.0.34](https://github.com/mobile-next/devicekit-ios/releases/tag/0.0.34) (2026-10-13)
 * Feat: clear key in device.io.keys sends the HID keyboard clear to wipe the focused text field ([#101](https://github.com/mobile-next/devicekit-ios/pull/101))
 * Fix: bundle XCTest frameworks in the runner when Xcode 27 doesn't, and don't merge stale zips ([#100](https://github.com/mobile-next/devicekit-ios/pull/100))
