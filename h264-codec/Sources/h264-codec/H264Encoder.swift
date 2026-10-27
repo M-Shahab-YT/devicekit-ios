@@ -50,13 +50,26 @@ public final class H264Encoder: NSObject {
     public var naluHandling: ((Data) -> Void)?
 
     public func configureCompressSession(_ config: H264EncoderConfig) throws {
+        // Low-latency rate control + explicitly require the hardware encoder.
+        let encoderSpecification: [CFString: Any] = [
+            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
+            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true
+        ]
+
+        // IOSurface/Metal-backed buffers avoid extra copies into the encoder.
+        let imageBufferAttributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true
+        ]
+
         let error = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             width: config.width,
             height: config.height,
             codecType: kCMVideoCodecType_H264,
-            encoderSpecification: nil,
-            imageBufferAttributes: nil,
+            encoderSpecification: encoderSpecification as CFDictionary,
+            imageBufferAttributes: imageBufferAttributes as CFDictionary,
             compressedDataAllocator: kCFAllocatorDefault,
             outputCallback: encodingOutputCallback,
             refcon: Unmanaged.passUnretained(self).toOpaque(),
@@ -68,23 +81,37 @@ public final class H264Encoder: NSObject {
             throw ConfigurationError.cannotCreateSession
         }
 
-        let propertyDictionary = [
+        // Hard data-rate cap (bytes per second) prevents the quality hint from
+        // producing an unstreamable bitrate. Keyframes every ~2 s instead of 1 s.
+        let dataRateLimits: [NSNumber] = [
+            NSNumber(value: max(config.averageBitRate / 8, 1)),
+            NSNumber(value: 1.0)
+        ]
+
+        let propertyDictionary: [CFString: Any] = [
             kVTCompressionPropertyKey_PixelTransferProperties: [
                 kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal
             ],
             kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval: config.expectedFrameRate,
+            kVTCompressionPropertyKey_MaxKeyFrameInterval: config.expectedFrameRate * 2,
             kVTCompressionPropertyKey_ExpectedFrameRate: config.expectedFrameRate,
             kVTCompressionPropertyKey_AverageBitRate: config.averageBitRate,
+            kVTCompressionPropertyKey_DataRateLimits: dataRateLimits,
             kVTCompressionPropertyKey_RealTime: config.isRealTime,
             kVTCompressionPropertyKey_AllowFrameReordering: false,
             kVTCompressionPropertyKey_MaximizePowerEfficiency: false,
             kVTCompressionPropertyKey_Quality: config.quality
-        ] as CFDictionary
+        ]
 
-        guard VTSessionSetProperties(session, propertyDictionary: propertyDictionary) == noErr else {
+        guard VTSessionSetProperties(session, propertyDictionary: propertyDictionary as CFDictionary) == noErr else {
             throw ConfigurationError.cannotSetProperties
         }
+
+        // Best-effort: cap QP so screen text stays sharp; the rate controller
+        // will drop frames rather than blur the image when the budget runs out.
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: 30 as CFNumber)
+        // Best-effort: do not let the hardware encoder buffer frames for lookahead.
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: 0 as CFNumber)
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {
             throw ConfigurationError.cannotPrepareToEncode

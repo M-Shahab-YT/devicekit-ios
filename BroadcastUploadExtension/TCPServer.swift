@@ -25,7 +25,10 @@ public final class TCPServer {
             throw ServerError.invalidPortNumber
         }
 
-        let params = NWParameters.tcp
+        // Disable Nagle so small NAL units are not delayed waiting for ACKs.
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let params = NWParameters(tls: nil, tcp: tcpOptions)
         params.requiredLocalEndpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
             port: port
