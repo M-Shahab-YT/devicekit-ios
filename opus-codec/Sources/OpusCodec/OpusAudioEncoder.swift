@@ -11,12 +11,12 @@ public final class OpusAudioEncoder {
     private var pendingPCM: [Int16] = []
 
     private let outputSampleRate: Double = 48_000
-    private let outputChannels: UInt32 = 1
+    private let outputChannels: UInt32 = 2
     private let frameSize: Int = 960 // 20 ms @ 48 kHz
     private let maxPacketSize: Int = 4000
     private var bitRate: Int
 
-    public init(bitRate: Int = 64_000) {
+    public init(bitRate: Int = 128_000) {
         self.bitRate = bitRate
         self.audioConverter = AudioFormatConverter(sampleRate: outputSampleRate, channels: outputChannels)
     }

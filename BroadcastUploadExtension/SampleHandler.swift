@@ -8,7 +8,7 @@ class SampleHandler: RPBroadcastSampleHandler {
     private static let defaultExpectedFrameRate: Int = 60
     private static let defaultAverageBitRate: Int = 25_000_000
     private static let defaultAudioPort: UInt16 = 12006
-    private static let defaultAudioBitRate: Int = 64_000
+    private static let defaultAudioBitRate: Int = 128_000
 
     private static let rpcPort: UInt16 = 12004
 

@@ -168,9 +168,9 @@ final class AudioFormatConverter {
             mSampleRate: outputSampleRate,
             mFormatID: kAudioFormatLinearPCM,
             mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
-            mBytesPerPacket: 2,
+            mBytesPerPacket: UInt32(2 * outputChannels),
             mFramesPerPacket: 1,
-            mBytesPerFrame: 2,
+            mBytesPerFrame: UInt32(2 * outputChannels),
             mChannelsPerFrame: outputChannels,
             mBitsPerChannel: 16,
             mReserved: 0
