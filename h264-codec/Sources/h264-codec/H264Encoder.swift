@@ -72,12 +72,13 @@ public final class H264Encoder: NSObject {
             kVTCompressionPropertyKey_PixelTransferProperties: [
                 kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal
             ],
-            kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_Baseline_AutoLevel,
+            kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
             kVTCompressionPropertyKey_MaxKeyFrameInterval: config.expectedFrameRate,
             kVTCompressionPropertyKey_ExpectedFrameRate: config.expectedFrameRate,
             kVTCompressionPropertyKey_AverageBitRate: config.averageBitRate,
             kVTCompressionPropertyKey_RealTime: config.isRealTime,
-            kVTCompressionPropertyKey_MaximizePowerEfficiency: true,
+            kVTCompressionPropertyKey_AllowFrameReordering: false,
+            kVTCompressionPropertyKey_MaximizePowerEfficiency: false,
             kVTCompressionPropertyKey_Quality: config.quality
         ] as CFDictionary
 
@@ -306,8 +307,7 @@ public final class H264Encoder: NSObject {
         orientation: CGImagePropertyOrientation
     ) {
         guard let session = session,
-              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-              let rotatedPixelBuffer = imageBuffer.rotate(context: context, orientation: orientation)
+              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else {
             return
         }
@@ -315,9 +315,17 @@ public final class H264Encoder: NSObject {
         let timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let duration = CMSampleBufferGetDuration(sampleBuffer)
 
+        let pixelBuffer: CVImageBuffer
+        if orientation == .up {
+            pixelBuffer = imageBuffer
+        } else {
+            guard let rotated = imageBuffer.rotate(context: context, orientation: orientation) else { return }
+            pixelBuffer = rotated
+        }
+
         VTCompressionSessionEncodeFrame(
             session,
-            imageBuffer: rotatedPixelBuffer,
+            imageBuffer: pixelBuffer,
             presentationTimeStamp: timeStamp,
             duration: duration,
             frameProperties: nil,
@@ -332,15 +340,21 @@ public final class H264Encoder: NSObject {
         context: CIContext,
         orientation: CGImagePropertyOrientation
     ) {
-        guard let session = session,
-              let rotatedPixelBuffer = imageBuffer.rotate(context: context, orientation: orientation)
-        else {
+        guard let session = session else {
             return
+        }
+
+        let pixelBuffer: CVImageBuffer
+        if orientation == .up {
+            pixelBuffer = imageBuffer
+        } else {
+            guard let rotated = imageBuffer.rotate(context: context, orientation: orientation) else { return }
+            pixelBuffer = rotated
         }
 
         VTCompressionSessionEncodeFrame(
             session,
-            imageBuffer: rotatedPixelBuffer,
+            imageBuffer: pixelBuffer,
             presentationTimeStamp: timestamp,
             duration: CMTime.invalid,
             frameProperties: nil,

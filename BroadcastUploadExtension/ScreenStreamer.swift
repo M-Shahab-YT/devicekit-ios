@@ -1,5 +1,6 @@
 import CoreImage
 import CoreMedia
+import CoreVideo
 import H264Codec
 import OpusCodec
 
@@ -26,6 +27,15 @@ final class ScreenStreamer {
     private var isStopped = false
     private var loggedMissingAudioClient = false
 
+    // Encoder is configured lazily from the first real video frame so we use the
+    // frame's native dimensions (landscape when gaming) instead of a fixed rect.
+    private var isConfigured = false
+    private var scaleFactor: Float = 1.0
+    private var expectedFrameRate: Int = 60
+    private var averageBitRate: Int = 12_000_000
+    private var qualityFactor: Float = 0.5
+    private var isRealTime = true
+
     init(
         videoEncoder: H264Encoder = H264Encoder(),
         tcpServer: TCPServer = TCPServer(),
@@ -44,15 +54,12 @@ final class ScreenStreamer {
 
         try tcpServer.start(port: config.port)
 
-        let dimensions = config.rect.scaledDimensions(config.scaleFactor)
-        try h264Encoder.configureCompressSession(H264EncoderConfig(
-            width: dimensions.width,
-            height: dimensions.height,
-            isRealTime: config.isRealTime,
-            expectedFrameRate: config.expectedFrameRate,
-            averageBitRate: config.averageBitRate,
-            quality: config.qualityFactor
-        ))
+        scaleFactor = config.scaleFactor
+        expectedFrameRate = config.expectedFrameRate
+        averageBitRate = config.averageBitRate
+        qualityFactor = config.qualityFactor
+        isRealTime = config.isRealTime
+        isConfigured = false
 
         h264Encoder.naluHandling = { [weak self] data in
             guard let self else { return }
@@ -170,11 +177,36 @@ final class ScreenStreamer {
         orientation: CGImagePropertyOrientation
     ) {
         guard !isPaused, !isStopped else { return }
+        ensureConfigured(for: sampleBuffer)
         h264Encoder.encode(
             sampleBuffer: sampleBuffer,
             context: context,
             orientation: orientation
         )
+    }
+
+    private func ensureConfigured(for sampleBuffer: CMSampleBuffer) {
+        guard !isConfigured else { return }
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let sourceWidth = CVPixelBufferGetWidth(imageBuffer)
+        let sourceHeight = CVPixelBufferGetHeight(imageBuffer)
+        let width = Int32(Float(sourceWidth) * scaleFactor)
+        let height = Int32(Float(sourceHeight) * scaleFactor)
+        guard width > 0, height > 0 else { return }
+        do {
+            try h264Encoder.configureCompressSession(H264EncoderConfig(
+                width: width,
+                height: height,
+                isRealTime: isRealTime,
+                expectedFrameRate: expectedFrameRate,
+                averageBitRate: averageBitRate,
+                quality: qualityFactor
+            ))
+            isConfigured = true
+            NSLog("[ScreenStreamer] encoder configured \(width)x\(height) @\(expectedFrameRate)fps \(averageBitRate)bps q\(qualityFactor)")
+        } catch {
+            NSLog("[ScreenStreamer] encoder configure failed: \(error)")
+        }
     }
 
     func encode(
@@ -199,6 +231,7 @@ final class ScreenStreamer {
 
     func stop() {
         isStopped = true
+        isConfigured = false
         tcpServer.stop()
         h264Encoder.invalidateCompressionSession()
         audioServer.stop()

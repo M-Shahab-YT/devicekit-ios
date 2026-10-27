@@ -3,10 +3,10 @@ import ReplayKit
 
 class SampleHandler: RPBroadcastSampleHandler {
     private static let defaultPort: UInt16 = 12005
-    private static let defaultScaleFactor: Float = 0.5
-    private static let defaultQualityFactor: Float = 0.8
-    private static let defaultExpectedFrameRate: Int = 30
-    private static let defaultAverageBitRate: Int = 8_000_000
+    private static let defaultScaleFactor: Float = 1.0
+    private static let defaultQualityFactor: Float = 0.5
+    private static let defaultExpectedFrameRate: Int = 60
+    private static let defaultAverageBitRate: Int = 12_000_000
     private static let defaultAudioPort: UInt16 = 12006
     private static let defaultAudioBitRate: Int = 64_000
 
@@ -23,7 +23,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         let qualityFactor = setupInfo?["qualityFactor"] as? Float ?? Self.defaultQualityFactor
         let expectedFrameRate = setupInfo?["expectedFrameRate"] as? Int ?? Self.defaultExpectedFrameRate
         let averageBitRate = setupInfo?["averageBitRate"] as? Int ?? Self.defaultAverageBitRate
-        let isRealTime = setupInfo?["isRealTime"] as? Bool ?? false
+        let isRealTime = setupInfo?["isRealTime"] as? Bool ?? true
         let audioEnabled = setupInfo?["audioEnabled"] as? Bool ?? true
         let audioPort = setupInfo?["audioPort"] as? UInt16 ?? Self.defaultAudioPort
         let audioBitRate = setupInfo?["audioBitRate"] as? Int ?? Self.defaultAudioBitRate
@@ -67,12 +67,14 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         case .video:
             guard let context = context else { return }
-            guard let orientation = sampleBuffer.orientation else { return }
 
+            // Encode the sample buffer in its native orientation. Rotating every
+            // frame through CoreImage was the main FPS bottleneck and also forced
+            // landscape games into a cropped portrait frame.
             screenStreamer?.encode(
                 sampleBuffer: sampleBuffer,
                 context: context,
-                orientation: orientation
+                orientation: .up
             )
 
         case .audioApp:
