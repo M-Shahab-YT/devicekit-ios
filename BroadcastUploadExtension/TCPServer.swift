@@ -11,6 +11,8 @@ public final class TCPServer {
     private lazy var connectionQueue = DispatchQueue(label: "tcp.connection.queue")
 
     private var listener: NWListener?
+    private var isSending = false
+    private let sendLock = NSLock()
 
     public var dataHandler: ((Data) -> Void)?
     public var messageHandler: ((Data) -> Void)?
@@ -67,6 +69,9 @@ public final class TCPServer {
     public func stop() {
         listener?.cancel()
         listener = nil
+        sendLock.lock()
+        isSending = false
+        sendLock.unlock()
         dataHandler = nil
         messageHandler = nil
         onClientConnected = nil
@@ -92,9 +97,24 @@ public final class TCPServer {
     }
 
     private func send(data: Data, on connection: NWConnection) {
+        // Back-pressure: if the previous send has not been consumed by the
+        // network stack, drop this frame instead of queueing unbounded data
+        // (queue growth is what drives the extension over the 50 MB limit).
+        sendLock.lock()
+        if isSending {
+            sendLock.unlock()
+            return
+        }
+        isSending = true
+        sendLock.unlock()
+
         connection.send(
             content: data,
-            completion: .contentProcessed { error in
+            completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
+                self.sendLock.lock()
+                self.isSending = false
+                self.sendLock.unlock()
                 if let error = error {
                     print(error)
                 }

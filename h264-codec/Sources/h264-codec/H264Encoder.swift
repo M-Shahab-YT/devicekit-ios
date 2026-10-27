@@ -191,8 +191,9 @@ public final class H264Encoder: NSObject {
 
         let encoder: H264Encoder = Unmanaged<H264Encoder>.fromOpaque(refcon).takeUnretainedValue()
 
+        var frameData = Data()
         if sampleBuffer.isKeyFrame {
-            encoder.extractSPSAndPPS(from: sampleBuffer)
+            encoder.appendSPSAndPPS(from: sampleBuffer, to: &frameData)
         }
 
         var dataBuffer: CMBlockBuffer?
@@ -219,7 +220,7 @@ public final class H264Encoder: NSObject {
         // emit a timing SEI before the frame's VCL NAL units
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         if pts.isValid {
-            encoder.naluHandling?(H264Encoder.createTimingSEI(pts: pts))
+            frameData.append(H264Encoder.createTimingSEI(pts: pts))
         }
 
         var packageStartIndex = 0
@@ -238,13 +239,19 @@ public final class H264Encoder: NSObject {
                     naluData.append(ptr, count: naluLength)
                 }
 
-            packageStartIndex += (4 + naluLength)
+            frameData.append(naluData)
 
-            encoder.naluHandling?(naluData)
+            packageStartIndex += (4 + naluLength)
+        }
+
+        // Send the whole frame as one unit: one TCP send per frame instead of
+        // one per NAL (fewer syscalls, less overhead).
+        if !frameData.isEmpty {
+            encoder.naluHandling?(frameData)
         }
     }
 
-    private func extractSPSAndPPS(from sampleBuffer: CMSampleBuffer) {
+    private func appendSPSAndPPS(from sampleBuffer: CMSampleBuffer, to frameData: inout Data) {
         guard let description = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
 
         var parameterSetCount = 0
@@ -289,7 +296,7 @@ public final class H264Encoder: NSObject {
             var data = Data(capacity: 4 + size)
             data.append(H264Encoder.naluStartCode)
             data.append(ptr, count: size)
-            naluHandling?(data)
+            frameData.append(data)
         }
     }
 

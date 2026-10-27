@@ -28,7 +28,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         let audioPort = setupInfo?["audioPort"] as? UInt16 ?? Self.defaultAudioPort
         let audioBitRate = setupInfo?["audioBitRate"] as? Int ?? Self.defaultAudioBitRate
 
-        context = CIContext()
+        context = CIContext(options: [.cacheIntermediates: false])
         screenStreamer = ScreenStreamer()
 
         do {
