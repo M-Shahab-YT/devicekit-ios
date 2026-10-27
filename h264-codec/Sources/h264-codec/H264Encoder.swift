@@ -50,10 +50,11 @@ public final class H264Encoder: NSObject {
     public var naluHandling: ((Data) -> Void)?
 
     public func configureCompressSession(_ config: H264EncoderConfig) throws {
-        // Low-latency rate control + explicitly require the hardware encoder.
+        // Use raw key names so the iOS 14 deployment target does not reject the
+        // newer symbols; the device (iOS 27) supports them.
         let encoderSpecification: [CFString: Any] = [
-            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
-            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true
+            "EnableLowLatencyRateControl" as CFString: true,
+            "RequireHardwareAcceleratedVideoEncoder" as CFString: true
         ]
 
         // IOSurface/Metal-backed buffers avoid extra copies into the encoder.
@@ -109,9 +110,9 @@ public final class H264Encoder: NSObject {
 
         // Best-effort: cap QP so screen text stays sharp; the rate controller
         // will drop frames rather than blur the image when the budget runs out.
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: 30 as CFNumber)
+        VTSessionSetProperty(session, key: "MaxAllowedFrameQP" as CFString, value: 30 as CFNumber)
         // Best-effort: do not let the hardware encoder buffer frames for lookahead.
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: 0 as CFNumber)
+        VTSessionSetProperty(session, key: "MaxFrameDelayCount" as CFString, value: 0 as CFNumber)
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {
             throw ConfigurationError.cannotPrepareToEncode
