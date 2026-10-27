@@ -68,13 +68,13 @@ class SampleHandler: RPBroadcastSampleHandler {
         case .video:
             guard let context = context else { return }
 
-            // Encode the sample buffer in its native orientation. Rotating every
-            // frame through CoreImage was the main FPS bottleneck and also forced
-            // landscape games into a cropped portrait frame.
+            // Use the sample buffer's orientation so the encoder receives an
+            // upright image; ScreenStreamer configures the session with the
+            // rotated (landscape) dimensions.
             screenStreamer?.encode(
                 sampleBuffer: sampleBuffer,
                 context: context,
-                orientation: .up
+                orientation: sampleBuffer.orientation ?? .up
             )
 
         case .audioApp:

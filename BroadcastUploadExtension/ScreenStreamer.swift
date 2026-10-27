@@ -177,7 +177,7 @@ final class ScreenStreamer {
         orientation: CGImagePropertyOrientation
     ) {
         guard !isPaused, !isStopped else { return }
-        ensureConfigured(for: sampleBuffer)
+        ensureConfigured(for: sampleBuffer, orientation: orientation)
         h264Encoder.encode(
             sampleBuffer: sampleBuffer,
             context: context,
@@ -185,13 +185,27 @@ final class ScreenStreamer {
         )
     }
 
-    private func ensureConfigured(for sampleBuffer: CMSampleBuffer) {
+    private func ensureConfigured(for sampleBuffer: CMSampleBuffer, orientation: CGImagePropertyOrientation) {
         guard !isConfigured else { return }
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let sourceWidth = CVPixelBufferGetWidth(imageBuffer)
         let sourceHeight = CVPixelBufferGetHeight(imageBuffer)
-        let width = Int32(Float(sourceWidth) * scaleFactor)
-        let height = Int32(Float(sourceHeight) * scaleFactor)
+
+        // When the frame must be rotated by 90°, the encoded image is the
+        // swapped size. Configure the session to the rotated dimensions so the
+        // output is upright landscape instead of a cropped portrait frame.
+        let swapsDimensions: Bool
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swapsDimensions = true
+        default:
+            swapsDimensions = false
+        }
+
+        let baseWidth = swapsDimensions ? sourceHeight : sourceWidth
+        let baseHeight = swapsDimensions ? sourceWidth : sourceHeight
+        let width = Int32(Float(baseWidth) * scaleFactor)
+        let height = Int32(Float(baseHeight) * scaleFactor)
         guard width > 0, height > 0 else { return }
         do {
             try h264Encoder.configureCompressSession(H264EncoderConfig(
