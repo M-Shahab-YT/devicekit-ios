@@ -68,17 +68,21 @@ class SampleHandler: RPBroadcastSampleHandler {
         case .video:
             guard let context = context else { return }
 
-            // Use the sample buffer's orientation so the encoder receives an
-            // upright image; ScreenStreamer configures the session with the
-            // rotated (landscape) dimensions.
-            screenStreamer?.encode(
-                sampleBuffer: sampleBuffer,
-                context: context,
-                orientation: sampleBuffer.orientation ?? .up
-            )
+            // Use an autorelease pool so per-frame CoreImage/VideoToolbox
+            // allocations are released immediately, keeping the extension
+            // under the iOS 50 MB broadcast limit.
+            autoreleasepool {
+                screenStreamer?.encode(
+                    sampleBuffer: sampleBuffer,
+                    context: context,
+                    orientation: sampleBuffer.orientation ?? .up
+                )
+            }
 
         case .audioApp:
-            screenStreamer?.encodeAudio(sampleBuffer: sampleBuffer)
+            autoreleasepool {
+                screenStreamer?.encodeAudio(sampleBuffer: sampleBuffer)
+            }
 
         case .audioMic:
             break

@@ -1,4 +1,4 @@
-import Accelerate
+﻿import Accelerate
 import CoreGraphics
 import CoreImage
 import CoreMedia
@@ -38,6 +38,10 @@ public final class H264Encoder: NSObject {
     }
 
     private var session: VTCompressionSession?
+
+    // Reused across frames so rotation does not allocate a new buffer each time.
+    private var rotationPool: CVPixelBufferPool?
+    private var rotationPoolSize = CGSize.zero
 
     private static let naluStartCode = Data([UInt8](arrayLiteral: 0x00, 0x00, 0x00, 0x01))
 
@@ -145,6 +149,8 @@ public final class H264Encoder: NSObject {
     }
 
     public func invalidateCompressionSession() {
+        rotationPool = nil
+        rotationPoolSize = .zero
         guard let session = session else {
             return
         }
@@ -329,6 +335,41 @@ public final class H264Encoder: NSObject {
         return result
     }
 
+    private func rotatedBuffer(
+        from imageBuffer: CVImageBuffer,
+        orientation: CGImagePropertyOrientation,
+        context: CIContext
+    ) -> CVPixelBuffer? {
+        let width = CVPixelBufferGetWidth(imageBuffer)
+        let height = CVPixelBufferGetHeight(imageBuffer)
+        let swaps: Bool
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swaps = true
+        default:
+            swaps = false
+        }
+        let outWidth = swaps ? height : width
+        let outHeight = swaps ? width : height
+        let size = CGSize(width: outWidth, height: outHeight)
+
+        if rotationPool == nil || rotationPoolSize != size {
+            let attrs: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: CVPixelBufferGetPixelFormatType(imageBuffer),
+                kCVPixelBufferWidthKey as String: outWidth,
+                kCVPixelBufferHeightKey as String: outHeight,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+                kCVPixelBufferMetalCompatibilityKey as String: true
+            ]
+            var pool: CVPixelBufferPool?
+            CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &pool)
+            rotationPool = pool
+            rotationPoolSize = size
+        }
+
+        return imageBuffer.rotate(context: context, orientation: orientation, pool: rotationPool)
+    }
+
     public func encode(
         sampleBuffer: CMSampleBuffer,
         context: CIContext,
@@ -347,7 +388,7 @@ public final class H264Encoder: NSObject {
         if orientation == .up {
             pixelBuffer = imageBuffer
         } else {
-            guard let rotated = imageBuffer.rotate(context: context, orientation: orientation) else { return }
+            guard let rotated = rotatedBuffer(from: imageBuffer, orientation: orientation, context: context) else { return }
             pixelBuffer = rotated
         }
 
@@ -376,7 +417,7 @@ public final class H264Encoder: NSObject {
         if orientation == .up {
             pixelBuffer = imageBuffer
         } else {
-            guard let rotated = imageBuffer.rotate(context: context, orientation: orientation) else { return }
+            guard let rotated = rotatedBuffer(from: imageBuffer, orientation: orientation, context: context) else { return }
             pixelBuffer = rotated
         }
 
@@ -426,3 +467,4 @@ public final class H264Encoder: NSObject {
         encode(pixelBuffer: pixelBuffer, timestamp: timestamp)
     }
 }
+
