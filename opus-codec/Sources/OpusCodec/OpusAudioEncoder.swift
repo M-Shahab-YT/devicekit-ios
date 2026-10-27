@@ -89,7 +89,6 @@ public final class OpusAudioEncoder {
             }
 
             if let data {
-                NSLog("[OpusAudioEncoder] Opus frame bytes: \(data.count)")
                 opusHandling?(data)
             }
 
