@@ -4,9 +4,9 @@ import ReplayKit
 class SampleHandler: RPBroadcastSampleHandler {
     private static let defaultPort: UInt16 = 12005
     private static let defaultScaleFactor: Float = 1.0
-    private static let defaultQualityFactor: Float = 0.5
+    private static let defaultQualityFactor: Float = 0.8
     private static let defaultExpectedFrameRate: Int = 60
-    private static let defaultAverageBitRate: Int = 12_000_000
+    private static let defaultAverageBitRate: Int = 25_000_000
     private static let defaultAudioPort: UInt16 = 12006
     private static let defaultAudioBitRate: Int = 64_000
 
