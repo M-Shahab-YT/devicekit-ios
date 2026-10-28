@@ -86,37 +86,31 @@ public final class H264Encoder: NSObject {
             throw ConfigurationError.cannotCreateSession
         }
 
-        // Hard data-rate cap (bytes per second) prevents the quality hint from
-        // producing an unstreamable bitrate. Keyframes every ~2 s instead of 1 s.
-        let dataRateLimits: [NSNumber] = [
-            NSNumber(value: max(config.averageBitRate / 8, 1)),
-            NSNumber(value: 1.0)
-        ]
-
-        let propertyDictionary: [CFString: Any] = [
-            kVTCompressionPropertyKey_PixelTransferProperties: [
-                kVTPixelTransferPropertyKey_ScalingMode: kVTScalingMode_Normal
-            ],
-            kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval: config.expectedFrameRate * 2,
-            kVTCompressionPropertyKey_ExpectedFrameRate: config.expectedFrameRate,
-            kVTCompressionPropertyKey_AverageBitRate: config.averageBitRate,
-            kVTCompressionPropertyKey_DataRateLimits: dataRateLimits,
-            kVTCompressionPropertyKey_RealTime: config.isRealTime,
-            kVTCompressionPropertyKey_AllowFrameReordering: false,
-            kVTCompressionPropertyKey_MaximizePowerEfficiency: false,
-            kVTCompressionPropertyKey_Quality: config.quality
-        ]
-
-        guard VTSessionSetProperties(session, propertyDictionary: propertyDictionary as CFDictionary) == noErr else {
-            throw ConfigurationError.cannotSetProperties
+        // Set each property individually so one unsupported key cannot block
+        // the others (this was why keyframes/SPS were missing).
+        func setProperty(_ key: CFString, _ value: CFTypeRef) {
+            let status = VTSessionSetProperty(session, key: key, value: value)
+            if status != noErr {
+                print("[H264Encoder] property \(key) failed: \(status)")
+            }
         }
 
-        // Best-effort: cap QP so screen text stays sharp; the rate controller
-        // will drop frames rather than blur the image when the budget runs out.
-        VTSessionSetProperty(session, key: "MaxAllowedFrameQP" as CFString, value: 30 as CFNumber)
-        // Best-effort: do not let the hardware encoder buffer frames for lookahead.
-        VTSessionSetProperty(session, key: "MaxFrameDelayCount" as CFString, value: 0 as CFNumber)
+        let dataRateLimits = [
+            NSNumber(value: max(config.averageBitRate / 8, 1)),
+            NSNumber(value: 1.0)
+        ] as CFArray
+
+        setProperty(kVTCompressionPropertyKey_RealTime, (config.isRealTime ? kCFBooleanTrue : kCFBooleanFalse)!)
+        setProperty(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
+        setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: config.expectedFrameRate))
+        setProperty(kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: config.averageBitRate))
+        setProperty(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!)
+        setProperty(kVTCompressionPropertyKey_MaximizePowerEfficiency, kCFBooleanFalse!)
+        setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: config.expectedFrameRate * 2))
+        setProperty(kVTCompressionPropertyKey_Quality, NSNumber(value: config.quality))
+        setProperty(kVTCompressionPropertyKey_DataRateLimits, dataRateLimits)
+        setProperty("MaxAllowedFrameQP" as CFString, NSNumber(value: 30))
+        setProperty("MaxFrameDelayCount" as CFString, NSNumber(value: 0))
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {
             throw ConfigurationError.cannotPrepareToEncode
