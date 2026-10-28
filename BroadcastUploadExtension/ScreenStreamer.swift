@@ -217,7 +217,7 @@ final class ScreenStreamer {
                 quality: qualityFactor
             ))
             isConfigured = true
-            NSLog("[ScreenStreamer] encoder configured \(width)x\(height) @\(expectedFrameRate)fps \(averageBitRate)bps q\(qualityFactor)")
+            NSLog("[ScreenStreamer] source \(sourceWidth)x\(sourceHeight) orientation=\(orientation.rawValue) -> encoder \(width)x\(height) @\(expectedFrameRate)fps \(averageBitRate)bps q\(qualityFactor)")
         } catch {
             NSLog("[ScreenStreamer] encoder configure failed: \(error)")
         }
