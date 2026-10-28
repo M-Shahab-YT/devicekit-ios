@@ -1,4 +1,4 @@
-import Accelerate
+﻿import Accelerate
 import CoreImage
 import CoreMedia
 import CoreVideo
@@ -39,7 +39,7 @@ extension CVImageBuffer {
         return rotatedBuffer
     }
 
-    /// Fast, allocation-light 90° rotation for bi-planar YUV 420 buffers.
+    /// Fast, allocation-light 90Â° rotation for bi-planar YUV 420 buffers.
     /// Rotates the luma plane as 8-bit and the interleaved chroma plane as
     /// 16-bit pixels, so no colour conversion or CoreImage graph is needed.
     func rotatevImage(
@@ -69,13 +69,13 @@ extension CVImageBuffer {
         let rotation: UInt8
         switch orientation {
         case .right, .rightMirrored:
-            rotation = UInt8(kRotate90)
+            rotation = 1
         case .left, .leftMirrored:
-            rotation = UInt8(kRotate270)
+            rotation = 3
         case .down, .downMirrored:
-            rotation = UInt8(kRotate180)
+            rotation = 2
         default:
-            rotation = UInt8(kRotate0)
+            rotation = 0
         }
 
         var destination: CVPixelBuffer?
@@ -150,3 +150,4 @@ extension CVImageBuffer {
         return destination
     }
 }
+
