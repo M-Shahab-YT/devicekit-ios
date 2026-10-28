@@ -72,10 +72,14 @@ class SampleHandler: RPBroadcastSampleHandler {
             // allocations are released immediately, keeping the extension
             // under the iOS 50 MB broadcast limit.
             autoreleasepool {
+                // ReplayKit already delivers the buffer in the app's native
+                // orientation (landscape while gaming). Rotating it here made
+                // landscape footage come out sideways in a portrait frame, so
+                // we encode the buffer exactly as delivered.
                 screenStreamer?.encode(
                     sampleBuffer: sampleBuffer,
                     context: context,
-                    orientation: sampleBuffer.orientation ?? .up
+                    orientation: .up
                 )
             }
 

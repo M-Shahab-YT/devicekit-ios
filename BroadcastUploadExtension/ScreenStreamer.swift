@@ -191,19 +191,12 @@ final class ScreenStreamer {
         let sourceWidth = CVPixelBufferGetWidth(imageBuffer)
         let sourceHeight = CVPixelBufferGetHeight(imageBuffer)
 
-        // When the frame must be rotated by 90°, the encoded image is the
-        // swapped size. Configure the session to the rotated dimensions so the
-        // output is upright landscape instead of a cropped portrait frame.
-        let swapsDimensions: Bool
-        switch orientation {
-        case .left, .leftMirrored, .right, .rightMirrored:
-            swapsDimensions = true
-        default:
-            swapsDimensions = false
-        }
-
-        let baseWidth = swapsDimensions ? sourceHeight : sourceWidth
-        let baseHeight = swapsDimensions ? sourceWidth : sourceHeight
+        // ReplayKit delivers the buffer in the app's native orientation, so the
+        // source dimensions are already correct (landscape while gaming).
+        // Swapping them based on the orientation attachment produced a sideways
+        // portrait video, so we always use the buffer's own dimensions.
+        let baseWidth = sourceWidth
+        let baseHeight = sourceHeight
         let width = Int32(Float(baseWidth) * scaleFactor)
         let height = Int32(Float(baseHeight) * scaleFactor)
         guard width > 0, height > 0 else { return }
