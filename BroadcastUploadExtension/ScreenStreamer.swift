@@ -177,12 +177,35 @@ final class ScreenStreamer {
         orientation: CGImagePropertyOrientation
     ) {
         guard !isPaused, !isStopped else { return }
-        ensureConfigured(for: sampleBuffer, orientation: orientation)
+        let effective = effectiveOrientation(for: sampleBuffer, reported: orientation)
+        ensureConfigured(for: sampleBuffer, orientation: effective)
         h264Encoder.encode(
             sampleBuffer: sampleBuffer,
             context: context,
-            orientation: orientation
+            orientation: effective
         )
+    }
+
+    /// ReplayKit hands the extension the device's **native portrait** buffer and
+    /// (on this iOS version) does not always provide `RPVideoSampleOrientationKey`.
+    /// A landscape game therefore arrives as a portrait buffer whose content is
+    /// rotated 90° clockwise. Detect that case and turn it back counter-clockwise
+    /// so the encoded stream is upright landscape instead of sideways portrait.
+    private func effectiveOrientation(
+        for sampleBuffer: CMSampleBuffer,
+        reported: CGImagePropertyOrientation
+    ) -> CGImagePropertyOrientation {
+        switch reported {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return reported
+        default:
+            guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                return reported
+            }
+            let width = CVPixelBufferGetWidth(imageBuffer)
+            let height = CVPixelBufferGetHeight(imageBuffer)
+            return height > width ? .left : reported
+        }
     }
 
     private func ensureConfigured(for sampleBuffer: CMSampleBuffer, orientation: CGImagePropertyOrientation) {
@@ -191,12 +214,18 @@ final class ScreenStreamer {
         let sourceWidth = CVPixelBufferGetWidth(imageBuffer)
         let sourceHeight = CVPixelBufferGetHeight(imageBuffer)
 
-        // ReplayKit delivers the buffer in the app's native orientation, so the
-        // source dimensions are already correct (landscape while gaming).
-        // Swapping them based on the orientation attachment produced a sideways
-        // portrait video, so we always use the buffer's own dimensions.
-        let baseWidth = sourceWidth
-        let baseHeight = sourceHeight
+        // A 90° rotation swaps the encoded dimensions. This is the case for a
+        // landscape game delivered in the native portrait buffer.
+        let swapsDimensions: Bool
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swapsDimensions = true
+        default:
+            swapsDimensions = false
+        }
+
+        let baseWidth = swapsDimensions ? sourceHeight : sourceWidth
+        let baseHeight = swapsDimensions ? sourceWidth : sourceHeight
         let width = Int32(Float(baseWidth) * scaleFactor)
         let height = Int32(Float(baseHeight) * scaleFactor)
         guard width > 0, height > 0 else { return }
