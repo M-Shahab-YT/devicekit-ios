@@ -1,3 +1,4 @@
+import Accelerate
 import CoreImage
 import CoreMedia
 import CoreVideo
@@ -36,5 +37,116 @@ extension CVImageBuffer {
         guard let rotatedBuffer = rotatedPixelBuffer else { return nil }
         context.render(rotatedCIImage, to: rotatedBuffer)
         return rotatedBuffer
+    }
+
+    /// Fast, allocation-light 90° rotation for bi-planar YUV 420 buffers.
+    /// Rotates the luma plane as 8-bit and the interleaved chroma plane as
+    /// 16-bit pixels, so no colour conversion or CoreImage graph is needed.
+    func rotatevImage(
+        orientation: CGImagePropertyOrientation,
+        pool: CVPixelBufferPool? = nil
+    ) -> CVPixelBuffer? {
+        guard CVPixelBufferGetPlaneCount(self) == 2 else { return nil }
+        let format = CVPixelBufferGetPixelFormatType(self)
+        guard format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+              format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else {
+            return nil
+        }
+
+        let width = CVPixelBufferGetWidth(self)
+        let height = CVPixelBufferGetHeight(self)
+
+        let swaps: Bool
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swaps = true
+        default:
+            swaps = false
+        }
+        let outWidth = swaps ? height : width
+        let outHeight = swaps ? width : height
+
+        let rotation: UInt8
+        switch orientation {
+        case .right, .rightMirrored:
+            rotation = UInt8(kRotate90)
+        case .left, .leftMirrored:
+            rotation = UInt8(kRotate270)
+        case .down, .downMirrored:
+            rotation = UInt8(kRotate180)
+        default:
+            rotation = UInt8(kRotate0)
+        }
+
+        var destination: CVPixelBuffer?
+        if let pool = pool {
+            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &destination)
+        } else {
+            let attrs: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: format,
+                kCVPixelBufferWidthKey as String: outWidth,
+                kCVPixelBufferHeightKey as String: outHeight,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+                kCVPixelBufferMetalCompatibilityKey as String: true
+            ]
+            CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                outWidth,
+                outHeight,
+                format,
+                attrs as CFDictionary,
+                &destination
+            )
+        }
+        guard let destination = destination else { return nil }
+
+        CVPixelBufferLockBaseAddress(self, .readOnly)
+        CVPixelBufferLockBaseAddress(destination, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(destination, [])
+            CVPixelBufferUnlockBaseAddress(self, .readOnly)
+        }
+
+        for plane in 0..<2 {
+            guard let srcBase = CVPixelBufferGetBaseAddressOfPlane(self, plane),
+                  let dstBase = CVPixelBufferGetBaseAddressOfPlane(destination, plane) else {
+                return nil
+            }
+            let srcWidth = CVPixelBufferGetWidthOfPlane(self, plane)
+            let srcHeight = CVPixelBufferGetHeightOfPlane(self, plane)
+            let srcRowBytes = CVPixelBufferGetBytesPerRowOfPlane(self, plane)
+            let dstWidth = CVPixelBufferGetWidthOfPlane(destination, plane)
+            let dstHeight = CVPixelBufferGetHeightOfPlane(destination, plane)
+            let dstRowBytes = CVPixelBufferGetBytesPerRowOfPlane(destination, plane)
+
+            var src = vImage_Buffer(
+                data: srcBase,
+                height: vImagePixelCount(srcHeight),
+                width: vImagePixelCount(srcWidth),
+                rowBytes: srcRowBytes
+            )
+            var dst = vImage_Buffer(
+                data: dstBase,
+                height: vImagePixelCount(dstHeight),
+                width: vImagePixelCount(dstWidth),
+                rowBytes: dstRowBytes
+            )
+
+            let error: vImage_Error
+            if plane == 0 {
+                error = vImageRotate90_Planar8(
+                    &src, &dst, rotation, 0, vImage_Flags(kvImageNoFlags)
+                )
+            } else {
+                error = vImageRotate90_Planar16U(
+                    &src, &dst, rotation, 0, vImage_Flags(kvImageNoFlags)
+                )
+            }
+            if error != kvImageNoError {
+                return nil
+            }
+        }
+
+        return destination
     }
 }

@@ -374,7 +374,8 @@ public final class H264Encoder: NSObject {
             rotationPoolSize = size
         }
 
-        return imageBuffer.rotate(context: context, orientation: orientation, pool: rotationPool)
+        return imageBuffer.rotatevImage(orientation: orientation, pool: rotationPool)
+            ?? imageBuffer.rotate(context: context, orientation: orientation, pool: rotationPool)
     }
 
     public func encode(
