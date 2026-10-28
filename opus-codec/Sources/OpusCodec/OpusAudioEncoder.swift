@@ -12,9 +12,14 @@ public final class OpusAudioEncoder {
 
     private let outputSampleRate: Double = 48_000
     private let outputChannels: UInt32 = 2
-    private let frameSize: Int = 960 // 20 ms @ 48 kHz
+    private let frameSize: Int = 960 // 20 ms @ 48 kHz (samples per channel)
     private let maxPacketSize: Int = 4000
     private var bitRate: Int
+
+    /// Interleaved Int16 samples required for one 20 ms packet across all channels.
+    private var samplesPerPacket: Int {
+        frameSize * Int(outputChannels)
+    }
 
     public init(bitRate: Int = 128_000) {
         self.bitRate = bitRate
@@ -64,8 +69,8 @@ public final class OpusAudioEncoder {
             return
         }
 
-        while pendingPCM.count >= frameSize {
-            let frame = pendingPCM.prefix(frameSize)
+        while pendingPCM.count >= samplesPerPacket {
+            let frame = pendingPCM.prefix(samplesPerPacket)
             let data = frame.withUnsafeBufferPointer { buffer -> Data? in
                 guard let baseAddress = buffer.baseAddress else {
                     return nil
@@ -92,7 +97,7 @@ public final class OpusAudioEncoder {
                 opusHandling?(data)
             }
 
-            pendingPCM.removeFirst(frameSize)
+            pendingPCM.removeFirst(samplesPerPacket)
         }
     }
 
