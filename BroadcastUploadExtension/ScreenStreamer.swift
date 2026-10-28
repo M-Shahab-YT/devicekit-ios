@@ -204,7 +204,7 @@ final class ScreenStreamer {
             }
             let width = CVPixelBufferGetWidth(imageBuffer)
             let height = CVPixelBufferGetHeight(imageBuffer)
-            return height > width ? .left : reported
+            return height > width ? .right : reported
         }
     }
 
