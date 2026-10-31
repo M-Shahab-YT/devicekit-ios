@@ -3,6 +3,7 @@ import CoreMedia
 import CoreVideo
 import H264Codec
 import OpusCodec
+import UIKit
 
 struct StreamerConfig {
     let port: UInt16
@@ -204,7 +205,24 @@ final class ScreenStreamer {
             }
             let width = CVPixelBufferGetWidth(imageBuffer)
             let height = CVPixelBufferGetHeight(imageBuffer)
-            return height > width ? .right : reported
+            guard height > width else { return reported }
+
+            // ReplayKit does not expose RPVideoSampleOrientationKey on this iOS
+            // build, so the buffer is the native portrait frame with the
+            // landscape game rotated inside it. The direction depends on which
+            // landscape way the phone is held, which UIDevice tells us.
+            let device = UIDevice.current.orientation
+            let chosen: CGImagePropertyOrientation
+            switch device {
+            case .landscapeLeft:
+                chosen = .right
+            case .landscapeRight:
+                chosen = .left
+            default:
+                chosen = .right
+            }
+            NSLog("[ScreenStreamer] rotate probe device=\(device.rawValue) buffer=\(width)x\(height) chosen=\(chosen.rawValue)")
+            return chosen
         }
     }
 
