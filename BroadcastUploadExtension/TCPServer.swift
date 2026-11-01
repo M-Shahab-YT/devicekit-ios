@@ -11,6 +11,7 @@ public final class TCPServer {
     private lazy var connectionQueue = DispatchQueue(label: "tcp.connection.queue")
 
     private var listener: NWListener?
+    private var activeConnection: NWConnection?
     private var isSending = false
     private let sendLock = NSLock()
 
@@ -46,7 +47,16 @@ public final class TCPServer {
         listener?.newConnectionHandler = { [weak self] connection in
             guard let weakSelf = self else { return }
 
+            // Only one producer at a time. Health checks / extra clients must
+            // not steal the live stream from the active recorder.
+            if weakSelf.activeConnection != nil {
+                print("[TCPServer] rejecting extra client \(connection.endpoint)")
+                connection.cancel()
+                return
+            }
+
             print("connection requested --> \(connection.endpoint)")
+            weakSelf.activeConnection = connection
 
             connection.stateUpdateHandler = { state in
                 if state == .ready {
@@ -57,6 +67,11 @@ public final class TCPServer {
                     weakSelf.startReceiving(on: connection)
 
                     weakSelf.onClientConnected?()
+                } else if state == .failed || state == .cancelled {
+                    if weakSelf.activeConnection === connection {
+                        weakSelf.activeConnection = nil
+                        weakSelf.dataHandler = nil
+                    }
                 }
             }
 
@@ -69,6 +84,8 @@ public final class TCPServer {
     public func stop() {
         listener?.cancel()
         listener = nil
+        activeConnection?.cancel()
+        activeConnection = nil
         sendLock.lock()
         isSending = false
         sendLock.unlock()
