@@ -59,7 +59,8 @@ public final class TCPServer {
             weakSelf.activeConnection = connection
 
             connection.stateUpdateHandler = { state in
-                if state == .ready {
+                switch state {
+                case .ready:
                     weakSelf.dataHandler = { data in
                         weakSelf.send(data: data, on: connection)
                     }
@@ -67,11 +68,13 @@ public final class TCPServer {
                     weakSelf.startReceiving(on: connection)
 
                     weakSelf.onClientConnected?()
-                } else if state == .failed || state == .cancelled {
+                case .failed, .cancelled:
                     if weakSelf.activeConnection === connection {
                         weakSelf.activeConnection = nil
                         weakSelf.dataHandler = nil
                     }
+                default:
+                    break
                 }
             }
 
