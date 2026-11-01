@@ -19,14 +19,14 @@ struct StreamerConfig {
 
 final class ScreenStreamer {
     private let h264Encoder: H264Encoder
-    private let tcpServer: TCPServer
     private let audioEncoder: OpusAudioEncoder
-    private let audioServer: TCPServer
+    private let videoRing: RingStream
+    private let audioRing: RingStream
+    private var videoServer: RingServer?
+    private var audioServer: RingServer?
 
-    private var messageBuffer = Data()
     private var isPaused = false
     private var isStopped = false
-    private var loggedMissingAudioClient = false
 
     // Encoder is configured lazily from the first real video frame so we use the
     // frame's native dimensions (landscape when gaming) instead of a fixed rect.
@@ -39,21 +39,24 @@ final class ScreenStreamer {
 
     init(
         videoEncoder: H264Encoder = H264Encoder(),
-        tcpServer: TCPServer = TCPServer(),
-        audioEncoder: OpusAudioEncoder = OpusAudioEncoder(),
-        audioServer: TCPServer = TCPServer()
+        audioEncoder: OpusAudioEncoder = OpusAudioEncoder()
     ) {
         self.h264Encoder = videoEncoder
-        self.tcpServer = tcpServer
         self.audioEncoder = audioEncoder
-        self.audioServer = audioServer
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let root = base.appendingPathComponent("DeviceKitRings", isDirectory: true)
+        self.videoRing = RingStream(directory: root.appendingPathComponent("video", isDirectory: true))
+        self.audioRing = RingStream(directory: root.appendingPathComponent("audio", isDirectory: true))
     }
 
     func start(_ config: StreamerConfig) throws {
         isPaused = false
         isStopped = false
 
-        try tcpServer.start(port: config.port)
+        // New broadcast session: restart the on-disk rings at offset 0.
+        videoRing.reset()
+        audioRing.reset()
 
         scaleFactor = config.scaleFactor
         expectedFrameRate = config.expectedFrameRate
@@ -62,114 +65,27 @@ final class ScreenStreamer {
         isRealTime = config.isRealTime
         isConfigured = false
 
+        let vServer = RingServer(port: config.port, ring: videoRing)
+        try vServer.start()
+        videoServer = vServer
         h264Encoder.naluHandling = { [weak self] data in
-            guard let self else { return }
-            tcpServer.dataHandler?(data)
+            self?.videoRing.append(data)
         }
 
         if let audioPort = config.audioPort {
             audioEncoder.updateBitRate(config.audioBitRate)
-            try audioServer.start(port: audioPort)
+            let aServer = RingServer(port: audioPort, ring: audioRing)
+            try aServer.start()
+            audioServer = aServer
             audioEncoder.opusHandling = { [weak self] data in
                 guard let self else { return }
-                guard let dataHandler = audioServer.dataHandler else {
-                    if !self.loggedMissingAudioClient {
-                        self.loggedMissingAudioClient = true
-                        NSLog("[ScreenStreamer] Opus frame ready but no audio client connected")
-                    }
-                    return
-                }
-                dataHandler(self.lengthPrefixed(data))
+                self.audioRing.append(self.lengthPrefixed(data))
             }
         } else {
             audioEncoder.opusHandling = nil
-            audioServer.stop()
+            audioServer?.stop()
+            audioServer = nil
         }
-
-        tcpServer.messageHandler = { [weak self] data in
-            guard let self else { return }
-            self.handleIncomingData(data)
-        }
-    }
-
-    private func handleIncomingData(_ data: Data) {
-        messageBuffer.append(data)
-
-        while messageBuffer.count >= 4 {
-            let lengthBytes = messageBuffer.prefix(4)
-            let length = Int(UInt32(bigEndian: lengthBytes.withUnsafeBytes { $0.load(as: UInt32.self) }))
-
-            guard messageBuffer.count >= 4 + length else { break }
-
-            let messageData = messageBuffer.subdata(in: 4..<(4 + length))
-            messageBuffer.removeFirst(4 + length)
-
-            handleJSONRPC(messageData)
-        }
-    }
-
-    private func handleJSONRPC(_ data: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let method = json["method"] as? String else {
-            print("[ScreenStreamer] Invalid JSON-RPC message")
-            return
-        }
-
-        switch method {
-        case "screencapture.setConfiguration":
-            handleSetConfiguration(params: json["params"] as? [String: Any])
-        case "screencapture.pause":
-            handlePause()
-        case "screencapture.resume":
-            handleResume()
-        case "screencapture.stop":
-            handleStop()
-        default:
-            print("[ScreenStreamer] Unknown method: \(method)")
-        }
-    }
-
-    private func handleSetConfiguration(params: [String: Any]?) {
-        guard let params = params,
-              let bitrate = params["bitrate"] as? Int else {
-            print("[ScreenStreamer] Invalid params for setConfiguration")
-            return
-        }
-
-        let frameRate = params["frameRate"] as? Int
-
-        guard bitrate >= 100_000 && bitrate <= 8_000_000 else {
-            print("[ScreenStreamer] Bitrate out of range: \(bitrate) (must be 100000-8000000)")
-            return
-        }
-
-        if let fr = frameRate, fr < 1 || fr > 60 {
-            print("[ScreenStreamer] Frame rate out of range: \(fr) (must be 1-60)")
-            return
-        }
-
-        do {
-            try h264Encoder.updateEncoderSettings(newBitrate: bitrate, newFrameRate: frameRate)
-            print("[ScreenStreamer] ✓ Configuration updated: bitrate=\(bitrate) bps" +
-                  (frameRate.map { ", frameRate=\($0)" } ?? ""))
-        } catch {
-            print("[ScreenStreamer] ✗ Failed to update encoder: \(error)")
-        }
-    }
-
-    private func handlePause() {
-        isPaused = true
-        print("[ScreenStreamer] ✓ Paused")
-    }
-
-    private func handleResume() {
-        isPaused = false
-        print("[ScreenStreamer] ✓ Resumed")
-    }
-
-    private func handleStop() {
-        stop()
-        print("[ScreenStreamer] ✓ Stopped")
     }
 
     func encode(
@@ -286,9 +202,11 @@ final class ScreenStreamer {
     func stop() {
         isStopped = true
         isConfigured = false
-        tcpServer.stop()
+        videoServer?.stop()
+        videoServer = nil
+        audioServer?.stop()
+        audioServer = nil
         h264Encoder.invalidateCompressionSession()
-        audioServer.stop()
         audioEncoder.invalidate()
     }
 
