@@ -135,12 +135,27 @@ final class RingStream {
     private func openSegmentLocked() {
         try? current?.close()
         nextIndex += 1
-        let url = directory.appendingPathComponent(String(format: "seg_%06d.bin", nextIndex))
+        var url = directory.appendingPathComponent(String(format: "seg_%06d.bin", nextIndex))
         FileManager.default.createFile(atPath: url.path, contents: nil)
-        guard let handle = try? FileHandle(forWritingTo: url) else {
+        var handle = try? FileHandle(forWritingTo: url)
+        if handle == nil {
+            // The app-support container can be unavailable in some extension
+            // contexts; fall back to the temporary directory rather than
+            // silently dropping frames.
+            url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(String(format: "dkring_%06d.bin", nextIndex))
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            handle = try? FileHandle(forWritingTo: url)
+        }
+        guard let handle = handle else {
             current = nil
             return
         }
+        // Keep the ring readable if the device is locked while replaying.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path
+        )
         current = handle
         currentLength = 0
         segments.append(Segment(start: globalEnd, url: url, length: 0))
