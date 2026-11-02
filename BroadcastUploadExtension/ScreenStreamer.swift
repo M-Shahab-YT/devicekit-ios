@@ -131,11 +131,11 @@ final class ScreenStreamer {
             let chosen: CGImagePropertyOrientation
             switch device {
             case .landscapeLeft:
-                chosen = .right
-            case .landscapeRight:
                 chosen = .left
-            default:
+            case .landscapeRight:
                 chosen = .right
+            default:
+                chosen = .left
             }
             NSLog("[ScreenStreamer] rotate probe device=\(device.rawValue) buffer=\(width)x\(height) chosen=\(chosen.rawValue)")
             return chosen
