@@ -4,22 +4,36 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner label (e.g. macos-15, macos-26)
+        required: false
+        default: macos-15
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
+    - name: Select newest Xcode
+      run: |
+        ls -1 /Applications | grep -i '^Xcode' || true
+        NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+        if [ -n "$NEWEST" ]; then
+          echo "Selecting $NEWEST"
+          sudo xcode-select -s "$NEWEST"
+        fi
+        xcodebuild -version
+
     - name: Toolchain info
       run: |
-        xcodebuild -version
         xcrun --sdk iphoneos --show-sdk-version
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         if [ -d "$SDK/System/Library/Frameworks/ScreenCaptureKit.framework" ]; then
