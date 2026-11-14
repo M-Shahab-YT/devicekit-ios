@@ -210,6 +210,9 @@ final class ScreenStreamer {
         audioEncoder.invalidate()
     }
 
+    /// Total bytes appended to the video ring (diagnostics).
+    var videoBytesWritten: UInt64 { videoRing.totalWritten }
+
     private func lengthPrefixed(_ data: Data) -> Data {
         var length = UInt32(data.count).bigEndian
         var packet = Data()

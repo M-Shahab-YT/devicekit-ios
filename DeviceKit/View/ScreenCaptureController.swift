@@ -1,9 +1,18 @@
 import CoreMedia
 import Foundation
+import os
 import UIKit
 
 #if canImport(ScreenCaptureKit)
 import ScreenCaptureKit
+
+private let diagLog = OSLog(subsystem: "com.shahab.gamerecorder", category: "capture")
+
+/// NSLog interpolates as <private> in the unified log, which makes device
+/// debugging impossible. This logs publicly so ios syslog shows it.
+func diag(_ message: String) {
+    os_log("%{public}@", log: diagLog, type: .default, message)
+}
 
 /// Native, full-resolution capture for iOS 27+.
 ///
@@ -108,13 +117,13 @@ final class ScreenCaptureController: NSObject, ObservableObject {
             self.recoveryAttempts = 0
             isRunning = true
             status = "Capturing \(size.width)x\(size.height) @ \(Self.frameRate) fps"
-            NSLog("[ScreenCapture] started \(size.width)x\(size.height) @\(Self.frameRate)fps \(Self.averageBitRate)bps")
+            diag("started \(size.width)x\(size.height) @\(Self.frameRate)fps \(Self.averageBitRate)bps")
             startWatchdog()
         } catch {
             teardown()
             lastError = error.localizedDescription
             status = "Failed: \(error.localizedDescription)"
-            NSLog("[ScreenCapture] start failed: \(error)")
+            diag("start failed: \(error.localizedDescription)")
         }
     }
 
@@ -127,6 +136,10 @@ final class ScreenCaptureController: NSObject, ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard let self, self.isRunning, let sink = self.sink else { continue }
+
+                let frames = sink.encodedCount
+                let bytes = self.streamer?.videoBytesWritten ?? 0
+                diag("hb frames=\(frames) ring=\(bytes) silence=\(Int(sink.secondsSinceLastFrame)) tries=\(self.recoveryAttempts)")
 
                 let silence = sink.secondsSinceLastFrame
                 if silence < 2 {
@@ -141,7 +154,7 @@ final class ScreenCaptureController: NSObject, ObservableObject {
                 }
                 self.recoveryAttempts += 1
                 self.status = "No frames — restarting capture (\(self.recoveryAttempts)/3)…"
-                NSLog("[ScreenCapture] watchdog: \(Int(silence))s silence, restarting")
+                diag("watchdog: \(Int(silence))s silence, restarting")
                 await self.restartCapture(filter: filter)
             }
         }
@@ -222,6 +235,7 @@ extension ScreenCaptureController: SCContentSharingPickerObserver {
         Task { @MainActor in
             guard let configuration = self.pendingConfiguration else { return }
             self.pendingConfiguration = nil
+            diag("picker didUpdate: filter received, starting stream")
             await self.startStream(filter: filter, configuration: configuration)
         }
     }
@@ -251,6 +265,7 @@ extension ScreenCaptureController: SCContentSharingPickerObserver {
 @available(iOS 27.0, *)
 extension ScreenCaptureController: SCStreamDelegate {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        diag("stream stopped with error: \(error.localizedDescription)")
         Task { @MainActor in
             self.lastError = error.localizedDescription
             self.status = "Stopped: \(error.localizedDescription)"
@@ -354,7 +369,7 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
 
         if !didLogFirstFrame, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             didLogFirstFrame = true
-            NSLog("[ScreenCapture] first frame \(CVPixelBufferGetWidth(imageBuffer))x\(CVPixelBufferGetHeight(imageBuffer))")
+            diag("first frame \(CVPixelBufferGetWidth(imageBuffer))x\(CVPixelBufferGetHeight(imageBuffer))")
         }
 
         streamer.encode(
