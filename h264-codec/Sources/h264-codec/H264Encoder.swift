@@ -112,7 +112,10 @@ public final class H264Encoder: NSObject {
         setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: config.expectedFrameRate * 2))
         setProperty(kVTCompressionPropertyKey_Quality, NSNumber(value: config.quality))
         setProperty(kVTCompressionPropertyKey_DataRateLimits, dataRateLimits)
-        setProperty("MaxAllowedFrameQP" as CFString, NSNumber(value: 18))
+        // MaxAllowedFrameQP was removed: pinning QP to 18 overrode AverageBitRate
+        // and DataRateLimits, so the encoder emitted ~250 Mbps and keyframes ended
+        // up tens of MB apart (the PC then never found an SPS to start decoding).
+        // Quality now comes from AverageBitRate + Quality, which stays bounded.
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {
             throw ConfigurationError.cannotPrepareToEncode

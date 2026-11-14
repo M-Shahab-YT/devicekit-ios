@@ -73,7 +73,24 @@ final class ScreenStreamer {
         try vServer.start()
         videoServer = vServer
         h264Encoder.naluHandling = { [weak self] data in
-            self?.videoRing.append(data)
+            guard let self else { return }
+            // A keyframe NALU starts with SPS (0x67); remember where it began so
+            // a viewer can be served from a decodable boundary.
+            if data.count > 5,
+               data[data.startIndex] == 0,
+               data[data.startIndex + 1] == 0,
+               data[data.startIndex + 2] == 1,
+               data[data.startIndex + 3] == 0x67 {
+                self.videoRing.markSyncPoint()
+            } else if data.count > 6,
+                      data[data.startIndex] == 0,
+                      data[data.startIndex + 1] == 0,
+                      data[data.startIndex + 2] == 0,
+                      data[data.startIndex + 3] == 1,
+                      data[data.startIndex + 4] == 0x67 {
+                self.videoRing.markSyncPoint()
+            }
+            self.videoRing.append(data)
         }
         h264Encoder.errorHandling = { [weak self] status in
             self?.handleEncodeFailure(status)

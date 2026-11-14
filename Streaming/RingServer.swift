@@ -122,6 +122,10 @@ final class RingServer {
                 } else {
                     start = min(offset, total)
                 }
+            } else {
+                // LIVE: begin at the last keyframe so decoding can start
+                // immediately, with only a small replay.
+                start = self.ring.syncOffset
             }
 
             var ack = Data("GRA1".utf8)

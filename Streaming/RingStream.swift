@@ -29,6 +29,23 @@ final class RingStream {
     private var consumer: NWConnection?
     private var consumerOffset: UInt64 = 0
     private var sending = false
+    private var lastSync: UInt64 = 0
+
+    /// Offset of the most recent SPS/PPS (keyframe start). A fresh viewer should
+    /// begin here, otherwise it waits for the next keyframe — which can be tens
+    /// of megabytes away at high bitrates.
+    var syncOffset: UInt64 {
+        lock.lock(); defer { lock.unlock() }
+        let start = segments.first?.start ?? globalEnd
+        return max(min(lastSync, globalEnd), start)
+    }
+
+    /// Call immediately before appending a NALU that begins with SPS.
+    func markSyncPoint() {
+        lock.lock()
+        lastSync = globalEnd
+        lock.unlock()
+    }
 
     var totalWritten: UInt64 {
         lock.lock(); defer { lock.unlock() }
@@ -69,6 +86,7 @@ final class RingStream {
         globalEnd = 0
         currentLength = 0
         nextIndex = 0
+        lastSync = 0
         consumer?.cancel()
         consumer = nil
         consumerOffset = 0

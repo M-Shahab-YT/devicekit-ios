@@ -27,7 +27,7 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     /// 80 Mbps VBR for 2796x1290 @ 30 fps (~0.75 bits/pixel). The QP cap is
     /// what actually buys sharpness; this ceiling just has to be high enough
     /// not to starve it on busy scenes.
-    private static let averageBitRate = 80_000_000
+    private static let averageBitRate = 60_000_000
     private static let frameRate = 30
 
     @Published private(set) var isRunning = false
