@@ -24,27 +24,20 @@ import ScreenCaptureKit
 final class ScreenCaptureController: NSObject, ObservableObject {
     static let shared = ScreenCaptureController()
 
+    /// 80 Mbps VBR for 2796x1290 @ 30 fps (~0.75 bits/pixel). The QP cap is
+    /// what actually buys sharpness; this ceiling just has to be high enough
+    /// not to starve it on busy scenes.
+    private static let averageBitRate = 80_000_000
+    private static let frameRate = 30
+
     @Published private(set) var isRunning = false
     @Published private(set) var status = "Idle"
     @Published private(set) var lastError: String?
 
     private var stream: SCStream?
     private var streamer: ScreenStreamer?
+    private var sink: ScreenCaptureFrameSink?
     private var pendingConfiguration: SCStreamConfiguration?
-    private let context = CIContext(options: [.cacheIntermediates: false])
-
-    private let videoQueue = DispatchQueue(
-        label: "screencapture.video", qos: .userInitiated
-    )
-    private let audioQueue = DispatchQueue(
-        label: "screencapture.audio", qos: .userInitiated
-    )
-
-    /// Screens arrive at display rate; we encode at 30 fps so each frame gets
-    /// twice the bits. Paced from buffer timestamps so it also works on
-    /// 120 Hz ProMotion.
-    private var lastEncodedPresentationTime = CMTime.invalid
-    private let minimumFrameStep = CMTime(value: 1, timescale: 31)
 
     private override init() {
         super.init()
@@ -58,8 +51,7 @@ final class ScreenCaptureController: NSObject, ObservableObject {
         lastError = nil
         status = "Choose the full display in the picker..."
 
-        let configuration = makeConfiguration()
-        pendingConfiguration = configuration
+        pendingConfiguration = makeConfiguration()
 
         let picker = SCContentSharingPicker.shared
         var pickerConfiguration = SCContentSharingPickerConfiguration()
@@ -75,31 +67,43 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     }
 
     private func startStream(filter: SCContentFilter, configuration: SCStreamConfiguration) async {
+        // Re-derive the size from the filter: the person may have started the
+        // picker in portrait and rotated before choosing the display.
+        var configuration = configuration
+        let size = Self.outputSize()
+        configuration.width = size.width
+        configuration.height = size.height
+
         do {
-            lastEncodedPresentationTime = .invalid
             let streamer = ScreenStreamer()
             try streamer.start(StreamerConfig(
                 port: 12005,
                 rect: CGRect.zero,
                 scaleFactor: 1.0,
                 qualityFactor: 1.0,
-                expectedFrameRate: 30,
-                averageBitRate: 50_000_000,
+                expectedFrameRate: Self.frameRate,
+                averageBitRate: Self.averageBitRate,
                 isRealTime: true,
                 audioPort: 12006,
                 audioBitRate: 128_000
             ))
 
+            let sink = ScreenCaptureFrameSink(
+                streamer: streamer,
+                context: CIContext(options: [.cacheIntermediates: false])
+            )
+
             let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
-            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
+            try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: sink.videoQueue)
+            try stream.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.audioQueue)
             try await stream.startCapture()
 
             self.stream = stream
             self.streamer = streamer
+            self.sink = sink
             isRunning = true
-            status = "Capturing \(configuration.width)x\(configuration.height) @ 30 fps"
-            NSLog("[ScreenCapture] started \(configuration.width)x\(configuration.height)")
+            status = "Capturing \(size.width)x\(size.height) @ \(Self.frameRate) fps"
+            NSLog("[ScreenCapture] started \(size.width)x\(size.height) @\(Self.frameRate)fps \(Self.averageBitRate)bps")
         } catch {
             teardown()
             lastError = error.localizedDescription
@@ -118,6 +122,7 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     }
 
     private func teardown() {
+        sink = nil
         stream = nil
         streamer?.stop()
         streamer = nil
@@ -126,34 +131,37 @@ final class ScreenCaptureController: NSObject, ObservableObject {
 
     // MARK: - Configuration
 
-    private func makeConfiguration() -> SCStreamConfiguration {
+    /// Native panel size in pixels, oriented the way the device is held.
+    private static func outputSize() -> (width: Int, height: Int) {
         let native = UIScreen.main.nativeBounds.size
         let longSide = Int(max(native.width, native.height))
         let shortSide = Int(min(native.width, native.height))
 
+        let landscape: Bool
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            landscape = scene.interfaceOrientation.isLandscape
+        } else {
+            landscape = UIScreen.main.bounds.width > UIScreen.main.bounds.height
+        }
+        return landscape ? (longSide, shortSide) : (shortSide, longSide)
+    }
+
+    private func makeConfiguration() -> SCStreamConfiguration {
+        let size = Self.outputSize()
+
         // iOS exposes only width/height + audio on SCStreamConfiguration.
-        // Frame interval and pixel format cannot be configured here, so the
-        // stream delivers at display rate and we pace to 30 fps ourselves.
+        // Frame interval and pixel format cannot be configured here (they are
+        // macOS-only), so the stream delivers at display rate and the sink
+        // paces to 30 fps itself.
         let configuration = SCStreamConfiguration()
-        configuration.width = longSide
-        configuration.height = shortSide
+        configuration.width = size.width
+        configuration.height = size.height
 
         configuration.capturesAudio = true
         configuration.excludesCurrentProcessAudio = false
         configuration.sampleRate = 48_000
         configuration.channelCount = 2
         return configuration
-    }
-
-    enum CaptureError: LocalizedError {
-        case noDisplay
-
-        var errorDescription: String? {
-            switch self {
-            case .noDisplay:
-                return "No display available to capture"
-            }
-        }
     }
 }
 
@@ -193,55 +201,7 @@ extension ScreenCaptureController: SCContentSharingPickerObserver {
     }
 }
 
-// MARK: - SCStreamOutput
-
-@available(iOS 27.0, *)
-extension ScreenCaptureController: SCStreamOutput {
-    nonisolated func stream(
-        _ stream: SCStream,
-        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of type: SCStreamOutputType
-    ) {
-        guard sampleBuffer.isValid else { return }
-
-        Task { @MainActor in
-            switch type {
-            case .screen:
-                guard
-                    let attachments = CMSampleBufferGetSampleAttachmentsArray(
-                        sampleBuffer, createIfNecessary: false
-                    ) as? [[SCStreamFrameInfo: Any]],
-                    let rawStatus = attachments.first?[.status] as? Int,
-                    let frameStatus = SCFrameStatus(rawValue: rawStatus),
-                    frameStatus == .complete
-                else {
-                    return
-                }
-
-                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                if self.lastEncodedPresentationTime.isValid {
-                    let delta = CMTimeSubtract(pts, self.lastEncodedPresentationTime)
-                    if CMTimeCompare(delta, self.minimumFrameStep) < 0 {
-                        return
-                    }
-                }
-                self.lastEncodedPresentationTime = pts
-
-                self.streamer?.encode(
-                    sampleBuffer: sampleBuffer,
-                    context: self.context,
-                    orientation: .up
-                )
-            case .audio:
-                self.streamer?.encodeAudio(sampleBuffer: sampleBuffer)
-            default:
-                break
-            }
-        }
-    }
-}
-
-// MARK: - SCStreamDelegate
+// MARK: - Stream delegate
 
 @available(iOS 27.0, *)
 extension ScreenCaptureController: SCStreamDelegate {
@@ -251,6 +211,81 @@ extension ScreenCaptureController: SCStreamDelegate {
             self.status = "Stopped: \(error.localizedDescription)"
             self.teardown()
         }
+    }
+}
+
+/// Runs on the stream's sample queues, never on the main actor: at 60 fps a
+/// per-frame hop to MainActor would allocate a Task per frame and could
+/// reorder frames. ScreenCaptureKit calls each output queue serially.
+@available(iOS 27.0, *)
+final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendable {
+    let videoQueue = DispatchQueue(label: "screencapture.video", qos: .userInitiated)
+    let audioQueue = DispatchQueue(label: "screencapture.audio", qos: .userInitiated)
+
+    private let streamer: ScreenStreamer
+    private let context: CIContext
+
+    /// Screens arrive at display rate; encode at 30 fps so each frame gets
+    /// twice the bits. Paced off buffer timestamps so it also behaves on
+    /// 120 Hz ProMotion.
+    private var lastEncodedPresentationTime = CMTime.invalid
+    private let minimumFrameStep = CMTime(value: 1, timescale: 31)
+    private var didLogFirstFrame = false
+
+    init(streamer: ScreenStreamer, context: CIContext) {
+        self.streamer = streamer
+        self.context = context
+    }
+
+    nonisolated func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
+        guard sampleBuffer.isValid else { return }
+
+        switch type {
+        case .screen:
+            encodeScreen(sampleBuffer)
+        case .audio:
+            streamer.encodeAudio(sampleBuffer: sampleBuffer)
+        default:
+            break
+        }
+    }
+
+    private func encodeScreen(_ sampleBuffer: CMSampleBuffer) {
+        // Skip frames the system marks idle/incomplete (occluded, resize).
+        if
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(
+                sampleBuffer, createIfNecessary: false
+            ) as? [[SCStreamFrameInfo: Any]],
+            let rawStatus = attachments.first?[.status] as? Int,
+            let frameStatus = SCFrameStatus(rawValue: rawStatus),
+            frameStatus != .complete
+        {
+            return
+        }
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        if lastEncodedPresentationTime.isValid {
+            let delta = CMTimeSubtract(pts, lastEncodedPresentationTime)
+            if CMTimeCompare(delta, minimumFrameStep) < 0 {
+                return
+            }
+        }
+        lastEncodedPresentationTime = pts
+
+        if !didLogFirstFrame, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            didLogFirstFrame = true
+            NSLog("[ScreenCapture] first frame \(CVPixelBufferGetWidth(imageBuffer))x\(CVPixelBufferGetHeight(imageBuffer))")
+        }
+
+        streamer.encode(
+            sampleBuffer: sampleBuffer,
+            context: context,
+            orientation: .up
+        )
     }
 }
 
