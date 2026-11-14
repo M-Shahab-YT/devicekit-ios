@@ -1,18 +1,9 @@
 import CoreMedia
 import Foundation
-import os
 import UIKit
 
 #if canImport(ScreenCaptureKit)
 import ScreenCaptureKit
-
-private let diagLog = OSLog(subsystem: "com.shahab.gamerecorder", category: "capture")
-
-/// NSLog interpolates as <private> in the unified log, which makes device
-/// debugging impossible. This logs publicly so ios syslog shows it.
-func diag(_ message: String) {
-    os_log("%{public}@", log: diagLog, type: .default, message)
-}
 
 /// Native, full-resolution capture for iOS 27+.
 ///

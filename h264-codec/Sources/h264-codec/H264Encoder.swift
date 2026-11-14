@@ -1,4 +1,4 @@
-﻿import Accelerate
+import Accelerate
 import CoreGraphics
 import CoreImage
 import CoreMedia
@@ -52,6 +52,7 @@ public final class H264Encoder: NSObject {
     ]
 
     public var naluHandling: ((Data) -> Void)?
+    public var errorHandling: ((OSStatus) -> Void)?
 
     public func configureCompressSession(_ config: H264EncoderConfig) throws {
         // Use raw key names so the iOS 14 deployment target does not reject the
@@ -394,7 +395,7 @@ public final class H264Encoder: NSObject {
             pixelBuffer = rotated
         }
 
-        VTCompressionSessionEncodeFrame(
+        let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: pixelBuffer,
             presentationTimeStamp: timeStamp,
@@ -403,6 +404,7 @@ public final class H264Encoder: NSObject {
             sourceFrameRefcon: nil,
             infoFlagsOut: nil
         )
+        if status != noErr { errorHandling?(status) }
     }
 
     public func encode(
@@ -423,7 +425,7 @@ public final class H264Encoder: NSObject {
             pixelBuffer = rotated
         }
 
-        VTCompressionSessionEncodeFrame(
+        let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: pixelBuffer,
             presentationTimeStamp: timestamp,
@@ -432,6 +434,7 @@ public final class H264Encoder: NSObject {
             sourceFrameRefcon: nil,
             infoFlagsOut: nil
         )
+        if status != noErr { errorHandling?(status) }
     }
 
     public func encode(

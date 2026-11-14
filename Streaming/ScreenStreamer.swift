@@ -31,6 +31,8 @@ final class ScreenStreamer {
     // Encoder is configured lazily from the first real video frame so we use the
     // frame's native dimensions (landscape when gaming) instead of a fixed rect.
     private var isConfigured = false
+    private var configuredWidth: Int32 = 0
+    private var configuredHeight: Int32 = 0
     private var scaleFactor: Float = 1.0
     private var expectedFrameRate: Int = 60
     private var averageBitRate: Int = 12_000_000
@@ -71,6 +73,9 @@ final class ScreenStreamer {
         h264Encoder.naluHandling = { [weak self] data in
             self?.videoRing.append(data)
         }
+        h264Encoder.errorHandling = { status in
+            diag("VT encode failed: \(status)")
+        }
 
         if let audioPort = config.audioPort {
             audioEncoder.updateBitRate(config.audioBitRate)
@@ -102,7 +107,6 @@ final class ScreenStreamer {
             orientation: effective
         )
     }
-
     /// ReplayKit hands the extension the device's **native portrait** buffer and
     /// (on this iOS version) does not always provide `RPVideoSampleOrientationKey`.
     /// A landscape game therefore arrives as a portrait buffer whose content is
@@ -143,7 +147,6 @@ final class ScreenStreamer {
     }
 
     private func ensureConfigured(for sampleBuffer: CMSampleBuffer, orientation: CGImagePropertyOrientation) {
-        guard !isConfigured else { return }
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let sourceWidth = CVPixelBufferGetWidth(imageBuffer)
         let sourceHeight = CVPixelBufferGetHeight(imageBuffer)
@@ -163,6 +166,18 @@ final class ScreenStreamer {
         let width = Int32(Float(baseWidth) * scaleFactor)
         let height = Int32(Float(baseHeight) * scaleFactor)
         guard width > 0, height > 0 else { return }
+
+        if isConfigured {
+            guard width != configuredWidth || height != configuredHeight else { return }
+
+            // VideoToolbox rejects buffers whose dimensions differ from the
+            // session, and produces nothing at all. Games switch orientation
+            // (portrait menu -> landscape match), so rebuild the session.
+            diag("resolution changed \(configuredWidth)x\(configuredHeight) -> \(width)x\(height); reconfiguring")
+            h264Encoder.invalidateCompressionSession()
+            isConfigured = false
+        }
+
         do {
             try h264Encoder.configureCompressSession(H264EncoderConfig(
                 width: width,
@@ -173,9 +188,11 @@ final class ScreenStreamer {
                 quality: qualityFactor
             ))
             isConfigured = true
-            NSLog("[ScreenStreamer] source \(sourceWidth)x\(sourceHeight) orientation=\(orientation.rawValue) -> encoder \(width)x\(height) @\(expectedFrameRate)fps \(averageBitRate)bps q\(qualityFactor)")
+            configuredWidth = width
+            configuredHeight = height
+            diag("encoder configured \(width)x\(height) @\(expectedFrameRate)fps \(averageBitRate)bps q\(qualityFactor) (source \(sourceWidth)x\(sourceHeight) rot=\(orientation.rawValue))")
         } catch {
-            NSLog("[ScreenStreamer] encoder configure failed: \(error)")
+            diag("encoder configure failed: \(error)")
         }
     }
 
