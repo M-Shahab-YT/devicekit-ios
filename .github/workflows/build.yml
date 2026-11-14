@@ -6,16 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: macOS runner label (e.g. macos-15, macos-26)
+        description: macOS runner label (e.g. xcode-27, macos-26)
         required: false
-        default: macos-15
+        default: xcode-27
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
