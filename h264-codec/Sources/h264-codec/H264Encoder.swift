@@ -109,7 +109,7 @@ public final class H264Encoder: NSObject {
         setProperty(kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: config.expectedFrameRate * 2))
         setProperty(kVTCompressionPropertyKey_Quality, NSNumber(value: config.quality))
         setProperty(kVTCompressionPropertyKey_DataRateLimits, dataRateLimits)
-        setProperty("MaxAllowedFrameQP" as CFString, NSNumber(value: 30))
+        setProperty("MaxAllowedFrameQP" as CFString, NSNumber(value: 18))
         setProperty("MaxFrameDelayCount" as CFString, NSNumber(value: 0))
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {

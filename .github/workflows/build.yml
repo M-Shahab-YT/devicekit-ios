@@ -17,6 +17,17 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Toolchain info
+      run: |
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-version
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+        if [ -d "$SDK/System/Library/Frameworks/ScreenCaptureKit.framework" ]; then
+          echo "ScreenCaptureKit IS in the iPhoneOS SDK -> native capture path enabled"
+        else
+          echo "ScreenCaptureKit NOT in the iPhoneOS SDK -> native capture path compiled out"
+        fi
+
     - name: Build unsigned IPA (real device)
       run: make ipa-unsigned
       env:
