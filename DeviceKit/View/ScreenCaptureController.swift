@@ -38,6 +38,9 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     private var streamer: ScreenStreamer?
     private var sink: ScreenCaptureFrameSink?
     private var pendingConfiguration: SCStreamConfiguration?
+    private var savedFilter: SCContentFilter?
+    private var watchdog: Task<Void, Never>?
+    private var recoveryAttempts = 0
 
     private override init() {
         super.init()
@@ -101,15 +104,55 @@ final class ScreenCaptureController: NSObject, ObservableObject {
             self.stream = stream
             self.streamer = streamer
             self.sink = sink
+            self.savedFilter = filter
+            self.recoveryAttempts = 0
             isRunning = true
             status = "Capturing \(size.width)x\(size.height) @ \(Self.frameRate) fps"
             NSLog("[ScreenCapture] started \(size.width)x\(size.height) @\(Self.frameRate)fps \(Self.averageBitRate)bps")
+            startWatchdog()
         } catch {
             teardown()
             lastError = error.localizedDescription
             status = "Failed: \(error.localizedDescription)"
             NSLog("[ScreenCapture] start failed: \(error)")
         }
+    }
+
+    /// A stream can go silent without reporting an error (backgrounded too
+    /// early, display asleep, occluded content). Rebuild it from the same
+    /// filter so the PC side simply resumes, at most a few times.
+    private func startWatchdog() {
+        watchdog?.cancel()
+        watchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, self.isRunning, let sink = self.sink else { continue }
+
+                let silence = sink.secondsSinceLastFrame
+                if silence < 2 {
+                    self.recoveryAttempts = 0
+                    continue
+                }
+                guard silence > 5, let filter = self.savedFilter else { continue }
+
+                if self.recoveryAttempts >= 3 {
+                    self.status = "No frames — check the screen is on and unlocked"
+                    continue
+                }
+                self.recoveryAttempts += 1
+                self.status = "No frames — restarting capture (\(self.recoveryAttempts)/3)…"
+                NSLog("[ScreenCapture] watchdog: \(Int(silence))s silence, restarting")
+                await self.restartCapture(filter: filter)
+            }
+        }
+    }
+
+    private func restartCapture(filter: SCContentFilter) async {
+        if let stream {
+            try? await stream.stopCapture()
+        }
+        teardown()
+        await startStream(filter: filter, configuration: makeConfiguration())
     }
 
     private func stopCapture() async {
@@ -122,6 +165,8 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     }
 
     private func teardown() {
+        watchdog?.cancel()
+        watchdog = nil
         sink = nil
         stream = nil
         streamer?.stop()
@@ -225,16 +270,34 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
     private let streamer: ScreenStreamer
     private let context: CIContext
 
-    /// Screens arrive at display rate; encode at 30 fps so each frame gets
-    /// twice the bits. Paced off buffer timestamps so it also behaves on
-    /// 120 Hz ProMotion.
-    private var lastEncodedPresentationTime = CMTime.invalid
-    private let minimumFrameStep = CMTime(value: 1, timescale: 31)
+    private let stateLock = NSLock()
+    private var lastEncodeTime: CFTimeInterval = 0
+    private var lastFrameAt: CFTimeInterval = CACurrentMediaTime()
+    private var skipped = 0
+    private var encodedFrames = 0
+
+    /// Target 30 fps, but never let the gate starve the pipeline.
+    private let minimumInterval: CFTimeInterval = 1.0 / 31.0
+    private let forcedFrameInterval: CFTimeInterval = 0.25
+    private let maxConsecutiveSkips = 240
+
     private var didLogFirstFrame = false
 
     init(streamer: ScreenStreamer, context: CIContext) {
         self.streamer = streamer
         self.context = context
+    }
+
+    var secondsSinceLastFrame: CFTimeInterval {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return CACurrentMediaTime() - lastFrameAt
+    }
+
+    var encodedCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return encodedFrames
     }
 
     nonisolated func stream(
@@ -267,14 +330,27 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
             return
         }
 
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        if lastEncodedPresentationTime.isValid {
-            let delta = CMTimeSubtract(pts, lastEncodedPresentationTime)
-            if CMTimeCompare(delta, minimumFrameStep) < 0 {
-                return
-            }
+        // Pace on a monotonic host clock, never on the buffer timestamp:
+        // ScreenCaptureKit can repeat or rewind presentation times (idle
+        // resend, stream restart), and a PTS-based gate then skips every
+        // subsequent frame forever — the pipeline goes silent after the
+        // first burst. Wall-clock pacing plus a forced frame keeps it alive.
+        let now = CACurrentMediaTime()
+
+        stateLock.lock()
+        lastFrameAt = now
+        let elapsed = now - lastEncodeTime
+        let tooSoon = elapsed < minimumInterval
+        skipped = tooSoon ? skipped + 1 : 0
+        let mustForce = skipped >= maxConsecutiveSkips || elapsed >= forcedFrameInterval
+        guard !tooSoon || mustForce else {
+            stateLock.unlock()
+            return
         }
-        lastEncodedPresentationTime = pts
+        lastEncodeTime = now
+        skipped = 0
+        encodedFrames += 1
+        stateLock.unlock()
 
         if !didLogFirstFrame, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             didLogFirstFrame = true

@@ -80,6 +80,12 @@ final class RingStream {
     func append(_ data: Data) {
         guard !data.isEmpty else { return }
         lock.lock()
+        // Recover if the write handle was lost (container hiccup, disk error):
+        // silently dropping every later frame left the PC connected to a ring
+        // that never advanced.
+        if current == nil {
+            openSegmentLocked()
+        }
         guard let handle = current else {
             lock.unlock()
             return
