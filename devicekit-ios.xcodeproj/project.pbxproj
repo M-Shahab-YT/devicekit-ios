@@ -50,6 +50,7 @@
 		781480FF2F27DEE600E61E3B /* IOGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781480FE2F27DEE600E61E3B /* IOGesture.swift */; };
 		7844BCC12F28128A00F7E003 /* OpusCodec in Frameworks */ = {isa = PBXBuildFile; productRef = 7844BCC02F28128A00F7E003 /* OpusCodec */; };
 		AAAA00152F83000100000006 /* OpusCodec in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA00142F83000100000005 /* OpusCodec */; };
+		AAAA00162F83000100000007 /* H264Codec in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA00172F83000100000008 /* H264Codec */; };
 		785281492F2BEC40002A7531 /* FBScreenshot.h in Headers */ = {isa = PBXBuildFile; fileRef = 785281472F2BEC40002A7531 /* FBScreenshot.h */; };
 		7852814A2F2BEC40002A7531 /* FBScreenshot.m in Sources */ = {isa = PBXBuildFile; fileRef = 785281482F2BEC40002A7531 /* FBScreenshot.m */; };
 		7865E4C42F423A8700D0F45F /* IOOrientationSet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7865E4C32F423A8700D0F45F /* IOOrientationSet.swift */; };
@@ -206,6 +207,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AAAA00152F83000100000006 /* OpusCodec in Frameworks */,
+				AAAA00162F83000100000007 /* H264Codec in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -454,6 +456,7 @@
 			name = "devicekit-ios";
 			packageProductDependencies = (
 				AAAA00142F83000100000005 /* OpusCodec */,
+				AAAA00172F83000100000008 /* H264Codec */,
 			);
 			productName = "maestro-driver-ios";
 			productReference = 52049BD32935039F00807AA3 /* devicekit-ios.app */;
@@ -1089,6 +1092,11 @@
 		AAAA00142F83000100000005 /* OpusCodec */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = OpusCodec;
+		};
+		AAAA00172F83000100000008 /* H264Codec */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 78F689002F17EDEB0025C8AC /* XCLocalSwiftPackageReference "h264-codec" */;
+			productName = H264Codec;
 		};
 		78C54B342F2CF23800A9369C /* H264Codec */ = {
 			isa = XCSwiftPackageProductDependency;
