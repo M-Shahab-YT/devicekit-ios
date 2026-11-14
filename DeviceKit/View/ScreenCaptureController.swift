@@ -40,6 +40,12 @@ final class ScreenCaptureController: NSObject, ObservableObject {
         label: "screencapture.audio", qos: .userInitiated
     )
 
+    /// Screens arrive at display rate; we encode at 30 fps so each frame gets
+    /// twice the bits. Paced from buffer timestamps so it also works on
+    /// 120 Hz ProMotion.
+    private var lastEncodedPresentationTime = CMTime.invalid
+    private let minimumFrameStep = CMTime(value: 1, timescale: 31)
+
     private override init() {
         super.init()
         SCContentSharingPicker.shared.add(self)
@@ -56,9 +62,9 @@ final class ScreenCaptureController: NSObject, ObservableObject {
         pendingConfiguration = configuration
 
         let picker = SCContentSharingPicker.shared
-        let pickerConfiguration = SCContentSharingPickerConfiguration()
-        pickerConfiguration.allowedPickerModes = .singleDisplay
+        var pickerConfiguration = SCContentSharingPickerConfiguration()
         pickerConfiguration.showsMicrophoneControl = false
+        pickerConfiguration.showsCameraControl = false
         picker.defaultConfiguration = pickerConfiguration
         picker.isActive = true
         picker.present()
@@ -70,6 +76,7 @@ final class ScreenCaptureController: NSObject, ObservableObject {
 
     private func startStream(filter: SCContentFilter, configuration: SCStreamConfiguration) async {
         do {
+            lastEncodedPresentationTime = .invalid
             let streamer = ScreenStreamer()
             try streamer.start(StreamerConfig(
                 port: 12005,
@@ -124,15 +131,12 @@ final class ScreenCaptureController: NSObject, ObservableObject {
         let longSide = Int(max(native.width, native.height))
         let shortSide = Int(min(native.width, native.height))
 
+        // iOS exposes only width/height + audio on SCStreamConfiguration.
+        // Frame interval and pixel format cannot be configured here, so the
+        // stream delivers at display rate and we pace to 30 fps ourselves.
         let configuration = SCStreamConfiguration()
-        // Native panel resolution (2796x1290 on this iPhone), landscape.
         configuration.width = longSide
         configuration.height = shortSide
-        configuration.scalesToFit = true
-        configuration.preservesAspectRatio = true
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.queueDepth = 6
-        configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
         configuration.capturesAudio = true
         configuration.excludesCurrentProcessAudio = false
@@ -213,6 +217,16 @@ extension ScreenCaptureController: SCStreamOutput {
                 else {
                     return
                 }
+
+                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                if self.lastEncodedPresentationTime.isValid {
+                    let delta = CMTimeSubtract(pts, self.lastEncodedPresentationTime)
+                    if CMTimeCompare(delta, self.minimumFrameStep) < 0 {
+                        return
+                    }
+                }
+                self.lastEncodedPresentationTime = pts
+
                 self.streamer?.encode(
                     sampleBuffer: sampleBuffer,
                     context: self.context,
