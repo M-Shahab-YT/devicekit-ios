@@ -53,14 +53,16 @@ public final class H264Encoder: NSObject {
 
     public var naluHandling: ((Data) -> Void)?
     public var errorHandling: ((OSStatus) -> Void)?
+    public var propertyFailureHandling: ((String, OSStatus) -> Void)?
 
     public func configureCompressSession(_ config: H264EncoderConfig) throws {
         // Use raw key names so the iOS 14 deployment target does not reject the
         // newer symbols; the device (iOS 27) supports them.
-        let encoderSpecification: [CFString: Any] = [
-            "EnableLowLatencyRateControl" as CFString: true,
-            "RequireHardwareAcceleratedVideoEncoder" as CFString: true
-        ]
+        //
+        // "EnableLowLatencyRateControl" was removed deliberately: combined with
+        // a 2796x1290 in-app session it made VideoToolbox tear the session down
+        // (kVTInvalidSessionErr -12903) as soon as the game took the GPU.
+        let encoderSpecification: [CFString: Any] = [:]
 
         // IOSurface/Metal-backed buffers avoid extra copies into the encoder.
         let imageBufferAttributes: [CFString: Any] = [
@@ -92,7 +94,7 @@ public final class H264Encoder: NSObject {
         func setProperty(_ key: CFString, _ value: CFTypeRef) {
             let status = VTSessionSetProperty(session, key: key, value: value)
             if status != noErr {
-                print("[H264Encoder] property \(key) failed: \(status)")
+                propertyFailureHandling?(key as String, status)
             }
         }
 
@@ -111,7 +113,6 @@ public final class H264Encoder: NSObject {
         setProperty(kVTCompressionPropertyKey_Quality, NSNumber(value: config.quality))
         setProperty(kVTCompressionPropertyKey_DataRateLimits, dataRateLimits)
         setProperty("MaxAllowedFrameQP" as CFString, NSNumber(value: 18))
-        setProperty("MaxFrameDelayCount" as CFString, NSNumber(value: 0))
 
         guard VTCompressionSessionPrepareToEncodeFrames(session) == noErr else {
             throw ConfigurationError.cannotPrepareToEncode

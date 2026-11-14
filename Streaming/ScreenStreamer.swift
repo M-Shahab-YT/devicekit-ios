@@ -33,6 +33,8 @@ final class ScreenStreamer {
     private var isConfigured = false
     private var configuredWidth: Int32 = 0
     private var configuredHeight: Int32 = 0
+    private var failureCount = 0
+    private var rebuildCount = 0
     private var scaleFactor: Float = 1.0
     private var expectedFrameRate: Int = 60
     private var averageBitRate: Int = 12_000_000
@@ -73,8 +75,11 @@ final class ScreenStreamer {
         h264Encoder.naluHandling = { [weak self] data in
             self?.videoRing.append(data)
         }
-        h264Encoder.errorHandling = { status in
-            diag("VT encode failed: \(status)")
+        h264Encoder.errorHandling = { [weak self] status in
+            self?.handleEncodeFailure(status)
+        }
+        h264Encoder.propertyFailureHandling = { key, status in
+            diag("VT property rejected: \(key) -> \(status)")
         }
 
         if let audioPort = config.audioPort {
@@ -225,6 +230,25 @@ final class ScreenStreamer {
         audioServer = nil
         h264Encoder.invalidateCompressionSession()
         audioEncoder.invalidate()
+    }
+
+    /// VideoToolbox can invalidate the session out from under us (kVTInvalidSessionErr
+    /// = -12903), typically when a game grabs the GPU. Rebuild on the next frame
+    /// instead of feeding a dead session forever.
+    private func handleEncodeFailure(_ status: OSStatus) {
+        guard status == -12903 else {
+            failureCount += 1
+            if failureCount % 60 == 1 {
+                diag("VT encode failed: \(status) (n=\(failureCount))")
+            }
+            return
+        }
+
+        guard isConfigured else { return }
+        isConfigured = false
+        h264Encoder.invalidateCompressionSession()
+        rebuildCount += 1
+        diag("VT session invalidated (-12903); rebuilding session #\(rebuildCount)")
     }
 
     /// Total bytes appended to the video ring (diagnostics).
