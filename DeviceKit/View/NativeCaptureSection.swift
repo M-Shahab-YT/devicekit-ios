@@ -32,6 +32,13 @@ struct NativeCaptureSection: View {
             .toggleStyle(.switch)
             .frame(maxWidth: 200)
 
+            Picker("FPS", selection: $controller.fps) {
+                Text("30").tag(30)
+                Text("60").tag(60)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 160)
+
             Text(controller.status)
                 .font(.caption2)
                 .foregroundColor(.white.opacity(0.7))

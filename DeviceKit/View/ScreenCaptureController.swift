@@ -28,12 +28,21 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     /// 80 Mbps VBR for 2796x1290 @ 30 fps (~0.75 bits/pixel). The QP cap is
     /// what actually buys sharpness; this ceiling just has to be high enough
     /// not to starve it on busy scenes.
-    private static let averageBitRate = 60_000_000
-    private static let frameRate = 30
+    private static func bitRate(fps: Int) -> Int { fps >= 60 ? 110_000_000 : 60_000_000 }
+
 
     @Published private(set) var isRunning = false
     @Published private(set) var status = "Idle"
     @Published private(set) var lastError: String?
+
+    /// 30 or 60 fps. ScreenCaptureKit has no frame-interval API on iOS, so the
+    /// stream runs at display rate and the sink paces/drops to this value.
+    @Published var fps: Int = UserDefaults.standard.object(forKey: "sckFps") as? Int ?? 30 {
+        didSet {
+            UserDefaults.standard.set(fps, forKey: "sckFps")
+            sink?.fps = fps
+        }
+    }
 
     /// Persisted: ScreenCaptureKit's landscape orientation depends on how the
     /// phone is held, so the user can flip the image 180 degrees.
@@ -104,8 +113,8 @@ final class ScreenCaptureController: NSObject, ObservableObject {
                 rect: CGRect.zero,
                 scaleFactor: 1.0,
                 qualityFactor: 1.0,
-                expectedFrameRate: Self.frameRate,
-                averageBitRate: Self.averageBitRate,
+                expectedFrameRate: self.fps,
+                averageBitRate: Self.bitRate(fps: self.fps),
                 isRealTime: true,
                 audioPort: 12006,
                 audioBitRate: 128_000
@@ -114,7 +123,8 @@ final class ScreenCaptureController: NSObject, ObservableObject {
             let sink = ScreenCaptureFrameSink(
                 streamer: streamer,
                 context: CIContext(options: [.cacheIntermediates: false]),
-                flip180: self.flip180
+                flip180: self.flip180,
+                fps: self.fps
             )
 
             let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
@@ -128,8 +138,8 @@ final class ScreenCaptureController: NSObject, ObservableObject {
             self.savedFilter = filter
             self.recoveryAttempts = 0
             isRunning = true
-            status = "Capturing \(size.width)x\(size.height) @ \(Self.frameRate) fps"
-            diag("started \(size.width)x\(size.height) @\(Self.frameRate)fps \(Self.averageBitRate)bps")
+            status = "Capturing \(size.width)x\(size.height) @ \(fps) fps"
+            diag("started \(size.width)x\(size.height) @\(fps)fps \(Self.bitRate(fps: fps))bps flip=\(flip180)")
             startWatchdog()
         } catch {
             teardown()
@@ -325,17 +335,26 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
     private var _flip180: Bool
 
     /// Target 30 fps, but never let the gate starve the pipeline.
-    private let minimumInterval: CFTimeInterval = 1.0 / 31.0
+
     private let forcedFrameInterval: CFTimeInterval = 0.25
     private let maxConsecutiveSkips = 240
 
     private var didLogFirstFrame = false
 
-    init(streamer: ScreenStreamer, context: CIContext, flip180: Bool) {
+    init(streamer: ScreenStreamer, context: CIContext, flip180: Bool, fps: Int) {
         self.streamer = streamer
         self.context = context
         self._flip180 = flip180
+        self._fps = fps
+        self.minimumInterval = 1.0 / (Double(fps) + 1.0)
     }
+
+    var fps: Int {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _fps }
+        set { stateLock.lock(); _fps = newValue; minimumInterval = 1.0 / (Double(newValue) + 1.0); stateLock.unlock() }
+    }
+    private var _fps: Int
+    private var minimumInterval: CFTimeInterval
 
     var secondsSinceLastFrame: CFTimeInterval {
         stateLock.lock()
