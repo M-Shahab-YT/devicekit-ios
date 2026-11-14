@@ -24,6 +24,14 @@ struct NativeCaptureSection: View {
                     .clipShape(Capsule())
             }
 
+            Toggle(isOn: $controller.flip180) {
+                Text("Flip 180°")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.9))
+            }
+            .toggleStyle(.switch)
+            .frame(maxWidth: 200)
+
             Text(controller.status)
                 .font(.caption2)
                 .foregroundColor(.white.opacity(0.7))

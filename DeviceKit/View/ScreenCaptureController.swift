@@ -34,6 +34,15 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     @Published private(set) var status = "Idle"
     @Published private(set) var lastError: String?
 
+    /// Persisted: ScreenCaptureKit's landscape orientation depends on how the
+    /// phone is held, so the user can flip the image 180 degrees.
+    @Published var flip180: Bool = UserDefaults.standard.object(forKey: "sckFlip180") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(flip180, forKey: "sckFlip180")
+            sink?.flip180 = flip180
+        }
+    }
+
     private var stream: SCStream?
     private var streamer: ScreenStreamer?
     private var sink: ScreenCaptureFrameSink?
@@ -93,7 +102,8 @@ final class ScreenCaptureController: NSObject, ObservableObject {
 
             let sink = ScreenCaptureFrameSink(
                 streamer: streamer,
-                context: CIContext(options: [.cacheIntermediates: false])
+                context: CIContext(options: [.cacheIntermediates: false]),
+                flip180: self.flip180
             )
 
             let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
@@ -282,6 +292,15 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
     private var skipped = 0
     private var encodedFrames = 0
 
+    /// ScreenCaptureKit hands back the display in a fixed orientation. Holding
+    /// the phone the other way yields a 180-degree rotated image, so the user
+    /// can flip it here (persisted) instead of re-encoding on the PC.
+    var flip180: Bool {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _flip180 }
+        set { stateLock.lock(); _flip180 = newValue; stateLock.unlock() }
+    }
+    private var _flip180: Bool
+
     /// Target 30 fps, but never let the gate starve the pipeline.
     private let minimumInterval: CFTimeInterval = 1.0 / 31.0
     private let forcedFrameInterval: CFTimeInterval = 0.25
@@ -289,9 +308,10 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
 
     private var didLogFirstFrame = false
 
-    init(streamer: ScreenStreamer, context: CIContext) {
+    init(streamer: ScreenStreamer, context: CIContext, flip180: Bool) {
         self.streamer = streamer
         self.context = context
+        self._flip180 = flip180
     }
 
     var secondsSinceLastFrame: CFTimeInterval {
@@ -366,7 +386,7 @@ final class ScreenCaptureFrameSink: NSObject, SCStreamOutput, @unchecked Sendabl
         streamer.encode(
             sampleBuffer: sampleBuffer,
             context: context,
-            orientation: .up
+            orientation: flip180 ? .down : .up
         )
     }
 }
