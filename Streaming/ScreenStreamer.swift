@@ -83,7 +83,12 @@ final class ScreenStreamer {
                 let has3 = bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 1
                 let headerIndex = has4 ? 4 : (has3 ? 3 : -1)
                 if headerIndex >= 0, (bytes[headerIndex] & 0x1F) == 7 {
+                    // Mark both rings at the same instant so a viewer that
+                    // starts at the video keyframe gets audio from the same
+                    // moment. Without this the audio ring replays from 0 and
+                    // the muxed file is minutes out of sync.
                     self.videoRing.markSyncPoint()
+                    self.audioRing.markSyncPoint()
                 }
             }
             self.videoRing.append(data)
