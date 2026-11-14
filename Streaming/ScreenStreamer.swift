@@ -100,6 +100,7 @@ final class ScreenStreamer {
             let aServer = RingServer(port: audioPort, ring: audioRing)
             try aServer.start()
             audioServer = aServer
+            audioEncoder.diagnostics = { message in diag(message) }
             audioEncoder.opusHandling = { [weak self] data in
                 guard let self else { return }
                 self.audioRing.append(self.lengthPrefixed(data))

@@ -5,6 +5,11 @@ import OpusEncoder
 
 public final class OpusAudioEncoder {
     public var opusHandling: ((Data) -> Void)?
+    public var diagnostics: ((String) -> Void)?
+
+    private var bufferCount = 0
+    private var packetCount = 0
+    private var nilConversions = 0
 
     private var encoder: OpusEncoderRef?
     private var audioConverter: AudioFormatConverter
@@ -55,8 +60,18 @@ public final class OpusAudioEncoder {
             return
         }
 
+        bufferCount += 1
+        if bufferCount == 1 || bufferCount % 120 == 0 {
+            var desc = "unknown"
+            if let fd = CMSampleBufferGetFormatDescription(sampleBuffer),
+               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd) {
+                desc = "rate=\(Int(asbd.pointee.mSampleRate)) ch=\(asbd.pointee.mChannelsPerFrame) bits=\(asbd.pointee.mBitsPerChannel) flags=\(asbd.pointee.mFormatFlags) fmt=\(asbd.pointee.mFormatID) frames=\(CMSampleBufferGetNumSamples(sampleBuffer))"
+            }
+            diagnostics?("audio buf=\(bufferCount) \(desc) pkts=\(packetCount) nilConv=\(nilConversions)")
+        }
+
         guard let pcm = audioConverter.convert(sampleBuffer: sampleBuffer) else {
-            NSLog("[OpusAudioEncoder] PCM conversion returned nil")
+            nilConversions += 1
             return
         }
 
@@ -94,6 +109,7 @@ public final class OpusAudioEncoder {
             }
 
             if let data {
+                packetCount += 1
                 opusHandling?(data)
             }
 

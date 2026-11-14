@@ -1,3 +1,4 @@
+import AVFAudio
 import CoreMedia
 import Foundation
 import UIKit
@@ -36,9 +37,9 @@ final class ScreenCaptureController: NSObject, ObservableObject {
 
     /// Persisted: ScreenCaptureKit's landscape orientation depends on how the
     /// phone is held, so the user can flip the image 180 degrees.
-    @Published var flip180: Bool = UserDefaults.standard.object(forKey: "sckFlip180") as? Bool ?? true {
+    @Published var flip180: Bool = UserDefaults.standard.object(forKey: "sckFlip180v2") as? Bool ?? false {
         didSet {
-            UserDefaults.standard.set(flip180, forKey: "sckFlip180")
+            UserDefaults.standard.set(flip180, forKey: "sckFlip180v2")
             sink?.flip180 = flip180
         }
     }
@@ -65,6 +66,12 @@ final class ScreenCaptureController: NSObject, ObservableObject {
 
         pendingConfiguration = makeConfiguration()
 
+        var orientation = "unknown"
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            orientation = "\(scene.interfaceOrientation.rawValue)"
+        }
+        diag("start requested orientation=\(orientation) flip=\(flip180)")
+
         let picker = SCContentSharingPicker.shared
         var pickerConfiguration = SCContentSharingPickerConfiguration()
         pickerConfiguration.showsMicrophoneControl = false
@@ -79,6 +86,10 @@ final class ScreenCaptureController: NSObject, ObservableObject {
     }
 
     private func startStream(filter: SCContentFilter, configuration: SCStreamConfiguration) async {
+        // Keep an audio session alive: ScreenCaptureKit's audio output needs the
+        // app's audio session active, otherwise it delivers silent buffers.
+        activateAudioSession()
+
         // Re-derive the size from the filter: the person may have started the
         // picker in portrait and rotated before choosing the display.
         var configuration = configuration
@@ -175,7 +186,19 @@ final class ScreenCaptureController: NSObject, ObservableObject {
         }
         teardown()
         SCContentSharingPicker.shared.isActive = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         status = "Stopped"
+    }
+
+    private func activateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+            try session.setActive(true)
+            diag("audio session active")
+        } catch {
+            diag("audio session failed: \(error.localizedDescription)")
+        }
     }
 
     private func teardown() {
